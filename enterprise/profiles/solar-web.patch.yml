@@ -1,0 +1,51 @@
+# Solar 企业 Web profile 覆盖层。
+#
+# 用法：
+#   DSH_HOME=<home> dsh --profile web \
+#     --patch enterprise/profiles/solar-web.patch.yml
+#
+# 只做三类事：
+#   1. 把 provider 路由指向企业/第三方 Messages 兼容网关；
+#   2. 覆盖默认模型，使新会话直接使用企业模型；
+#   3. 关闭 ADR-001 要求企业发行必须关闭的出口与通用能力。
+
+- id: llm-deepseek
+  config:
+    baseURL: !!js "process.env.SOLAR_MODEL_BASE_URL ?? 'https://api.deepseek.com/anthropic'"
+    models:
+      - id: !!js "process.env.SOLAR_MODEL ?? 'deepseek-flash'"
+        name: !!js "process.env.SOLAR_MODEL_LABEL ?? 'DeepSeek-V4.1-Flash'"
+        description: Solar enterprise Messages-compatible route
+        contextWindow: 1000000
+        maxTokens: 65536
+        systemPromptUpdate: in-history
+        toolUpdate: addition-only
+        inputModalities: [text]
+
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: !!js "process.env.SOLAR_MODEL ?? 'deepseek-flash'"
+
+# ADR-001：企业发行不得把完整会话日志作为请求字段发送给官方 API。
+- id: session-log-deepseek
+  disabled: true
+
+# ADR-001：业务场景默认不暴露通用 Shell、任意文件系统与任意网络请求。
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+- id: tool-fs
+  disabled: true
+
+- id: tool-fs-search
+  disabled: true
+
+- id: tool-jobs
+  disabled: true
+
+- id: tool-web
+  disabled: true
