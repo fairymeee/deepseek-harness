@@ -47,3 +47,6 @@ worktrees/
 .agents/worktrees/
 .typert-*/
 native/system/test/bin/
+
+# Desktop build artifacts and downloaded runtimes
+.desktop-build/
