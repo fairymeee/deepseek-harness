@@ -1,0 +1,21 @@
+- id: llm-deepseek
+  config:
+    baseURL: https://www.mcgrox.top
+    models:
+      - id: deepseek-v4.1-flash
+        name: DeepSeek-V4.1-Flash
+        description: Enterprise gateway
+        contextWindow: 1000000
+        maxTokens: 65536
+        systemPromptUpdate: in-history
+        toolUpdate: addition-only
+        inputModalities: [text]
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-v4.1-flash
+- id: session-log-deepseek
+  disabled: true
+- insert:
+    - id: enterprise-stream-bridge
+      name: './plugins/stream-bridge/index.js'
