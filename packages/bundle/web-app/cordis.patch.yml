@@ -332,9 +332,13 @@
     - id: ui-chat
       name: '@deepseek-ai/dsh-client-ui-chat'
 
-    # Official occupants for the generic sidebar and conversation brand slots.
+    # 企业构建：官方品牌只在 DSH_CLIENT_BUILD_PROFILE=official 时注册，
+    # 这里保留其条目但由 Solar 品牌包占用同一批 slot。
     - id: ui-brand-official
       name: '@deepseek-ai/dsh-client-ui-brand-official'
+
+    - id: ui-brand-solar
+      name: '@ciicjx/dsh-client-ui-brand-solar'
 
     - id: ui-attachment
       name: '@deepseek-ai/dsh-client-ui-attachment'
