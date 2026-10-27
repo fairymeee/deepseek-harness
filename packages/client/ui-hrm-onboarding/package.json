@@ -31,5 +31,8 @@
   "scripts": {
     "bundle": "tsdown",
     "watch": "tsdown --watch"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-client-ui-primitives": "workspace:*"
   }
 }

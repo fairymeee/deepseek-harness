@@ -4190,7 +4190,11 @@ importers:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
 
-  packages/client/ui-hrm-onboarding: {}
+  packages/client/ui-hrm-onboarding:
+    dependencies:
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: workspace:*
+        version: link:../ui-primitives
 
   packages/client/ui-input-trigger:
     devDependencies:

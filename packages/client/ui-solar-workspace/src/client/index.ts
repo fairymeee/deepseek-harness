@@ -41,6 +41,13 @@ export const inject = ['slots', 'layout', 'locale']
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'solar-apps: dictionaries')
+  // 标签栏是 overlay，不占布局；把高度声明成全局变量，让其他主面板
+  // （例如业务草稿页）能正确避让，不用各自硬编码 40px。
+  ctx.effect(() => {
+    const root = document.documentElement
+    root.style.setProperty('--solar-tabbar-height', '40px')
+    return () => { root.style.removeProperty('--solar-tabbar-height') }
+  }, 'solar-apps: tabbar height token')
   const t = ctx.locale.bind(NS)
   const apps = new SolarAppsStore()
   const tabs = new AppTabsStore()

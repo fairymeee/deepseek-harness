@@ -6,10 +6,14 @@
  * 都带预期版本；版本不一致时服务端拒绝，页面重新读取并提示。
  *
  * 模型看不到敏感字段的真实值——它们只在页面上由用户输入。
+ *
+ * 版式沿用 DSH 自己的页面约定：居中单列、最大宽度 960、头部独占一行、
+ * 分节用卡片；按钮与标签用官方 primitives，保证与外壳视觉一致。
  */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
+import { Button, Input, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DraftSelectionStore } from './store.ts'
 import type { Draft, DraftFieldSource } from './api.ts'
 import { confirmDraft, DraftError, fetchDraft, updateDraft, writeSensitiveFields } from './api.ts'
@@ -63,8 +67,7 @@ function sourceKey(type: string | undefined): HrmOnboardingKey {
 /**
  * 展示值。
  *
- * 敏感字段在草稿里存的是占位符，页面不显示原文，避免把真实值渲染到
- * 可能被截图或共享的区域；需要修改时由用户重新输入。
+ * 敏感字段在草稿里存的是占位符，页面不显示原文；需要修改时由用户重新输入。
  */
 function displayValue(value: unknown): string {
   if (value === null || value === undefined) return ''
@@ -108,9 +111,7 @@ export function DraftPage({ selection, t }: DraftPageProps) {
   if (draftId === null || draft === null) {
     return (
       <div className={css.page}>
-        <div className={css.empty}>
-          {error ?? t('empty')}
-        </div>
+        <div className={css.empty}>{error ?? t('empty')}</div>
       </div>
     )
   }
@@ -119,6 +120,8 @@ export function DraftPage({ selection, t }: DraftPageProps) {
   const sources = draft.sources ?? {}
   const awaiting = new Set(draft.awaitingInputFields ?? [])
   const missing = new Set(draft.missingFields ?? [])
+  const confirmed = draft.confirmationValid === true
+  const ready = draft.readyForConfirmation === true
 
   const save = async (field: string, value: string): Promise<void> => {
     setBusy(true)
@@ -135,7 +138,6 @@ export function DraftPage({ selection, t }: DraftPageProps) {
       setNotice(t('saved'))
     } catch (cause) {
       if (cause instanceof DraftError && cause.message.includes('版本')) {
-        // 版本冲突：重新读取，让用户看到最新内容再决定。
         await load(draft.id)
         setNotice(t('conflictHint'))
       } else {
@@ -163,117 +165,123 @@ export function DraftPage({ selection, t }: DraftPageProps) {
 
   return (
     <div className={css.page} data-hrm-draft-page={String(draft.id)}>
-      <header className={css.header}>
-        <div>
+      <header className={css.pageHead}>
+        <div className={css.headMain}>
           <h1 className={css.title}>{t('title')}</h1>
-          <div className={css.meta}>
-            <span>#{draft.id}</span>
-            <span>{t('version')} {draft.version}</span>
-            <span className={draft.readyForConfirmation === true ? css.ok : css.warn}>
-              {draft.readyForConfirmation === true ? t('ready') : t('notReady')}
-            </span>
+          <div className={css.chips}>
+            <Tag tone="neutral">#{draft.id}</Tag>
+            <Tag tone="quiet">{t('version')} {draft.version}</Tag>
             {draft.targetDeptId !== null && draft.targetDeptId !== undefined && (
-              <span>部门 #{draft.targetDeptId}</span>
+              <Tag tone="quiet">部门 #{draft.targetDeptId}</Tag>
             )}
+            <Tag tone={ready ? 'success' : 'warning'}>
+              {ready ? t('ready') : t('notReady')}
+            </Tag>
+            {confirmed && <Tag tone="info">{t('confirmedShort')}</Tag>}
           </div>
         </div>
         <div className={css.actions}>
-          <button type="button" className={css.button} disabled={busy} onClick={() => { void load(draft.id) }}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => { void load(draft.id) }}>
             {t('refresh')}
-          </button>
-          <button
-            type="button"
-            className={css.primary}
-            disabled={busy || draft.readyForConfirmation !== true || draft.confirmationValid === true}
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={busy || !ready || confirmed}
             onClick={() => { void confirm() }}
           >
             {busy ? t('confirming') : t('confirm')}
-          </button>
+          </Button>
         </div>
       </header>
 
-      {error !== null && <div className={css.error}>{error}</div>}
-      {notice !== null && <div className={css.notice}>{notice}</div>}
-
+      {error !== null && <div className={`${css.banner} ${css.bannerError}`}>{error}</div>}
+      {notice !== null && <div className={`${css.banner} ${css.bannerInfo}`}>{notice}</div>}
       {missing.size > 0 && (
-        <div className={css.banner}>
+        <div className={`${css.banner} ${css.bannerWarn}`}>
           {t('missing')}：{[...missing].map(name => FIELD_LABELS[name] ?? name).join('、')}
         </div>
       )}
 
-      <ul className={css.fields}>
-        {Object.entries(fields).map(([name, value]) => {
-          const source: DraftFieldSource | undefined = sources[name]
-          const sensitive = awaiting.has(name)
-          const isEditing = editing === name
-          return (
-            <li key={name} className={css.field}>
-              <div className={css.fieldHead}>
-                <span className={css.fieldName}>{FIELD_LABELS[name] ?? name}</span>
-                <span className={css.fieldSource}>
-                  {source === undefined ? '—' : t(sourceKey(source.sourceType))}
-                </span>
+      <section className={css.section}>
+        <h2 className={css.sectionTitle}>{t('fields')}</h2>
+        <dl className={css.grid}>
+          {Object.entries(fields).map(([name, value]) => {
+            const source: DraftFieldSource | undefined = sources[name]
+            const sensitive = awaiting.has(name)
+            const isEditing = editing === name
+            const shown = sensitive
+              ? (displayValue(value) === '' ? '' : '••••••')
+              : displayValue(value)
+            return (
+              <div key={name} className={css.field}>
+                <dt className={css.fieldName}>
+                  <span>{FIELD_LABELS[name] ?? name}</span>
+                  {source !== undefined && (
+                    <span className={css.source}>{t(sourceKey(source.sourceType))}</span>
+                  )}
+                </dt>
+                {isEditing ? (
+                  <dd className={css.fieldValue}>
+                    <div className={css.editor}>
+                      <Input
+                        autoFocus
+                        {...(css.input === undefined ? {} : { className: css.input })}
+                        value={inputValue}
+                        placeholder={sensitive ? t('sensitiveHint') : ''}
+                        onChange={event => setInputValue(event.target.value)}
+                      />
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        disabled={busy || inputValue.trim() === ''}
+                        onClick={() => { void save(name, inputValue.trim()) }}
+                      >
+                        {t('save')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => { setEditing(null); setInputValue('') }}
+                      >
+                        {t('cancel')}
+                      </Button>
+                    </div>
+                  </dd>
+                ) : (
+                  <dd className={css.fieldValue}>
+                    <button
+                      type="button"
+                      className={css.valueButton}
+                      onClick={() => {
+                        setEditing(name)
+                        setInputValue(sensitive ? '' : displayValue(value))
+                      }}
+                    >
+                      {shown === '' ? <span className={css.muted}>{t('emptyValue')}</span> : shown}
+                    </button>
+                  </dd>
+                )}
               </div>
-              {isEditing ? (
-                <div className={css.editor}>
-                  <input
-                    className={css.input}
-                    value={inputValue}
-                    autoFocus
-                    placeholder={sensitive ? t('sensitiveHint') : ''}
-                    onChange={event => setInputValue(event.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className={css.button}
-                    disabled={busy || inputValue.trim() === ''}
-                    onClick={() => { void save(name, inputValue.trim()) }}
-                  >
-                    {t('save')}
-                  </button>
-                  <button
-                    type="button"
-                    className={css.button}
-                    disabled={busy}
-                    onClick={() => { setEditing(null); setInputValue('') }}
-                  >
-                    {t('cancel')}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className={css.value}
-                  onClick={() => {
-                    setEditing(name)
-                    setInputValue(sensitive ? '' : displayValue(value))
-                  }}
-                >
-                  {sensitive
-                    ? (displayValue(value) === '' ? t('awaiting') : '已填写（点击修改）')
-                    : (displayValue(value) === '' ? '—' : displayValue(value))}
-                </button>
-              )}
-            </li>
-          )
-        })}
-      </ul>
+            )
+          })}
+        </dl>
+      </section>
 
-      <section className={css.conflicts}>
+      <section className={css.section}>
         <h2 className={css.sectionTitle}>{t('conflicts')}</h2>
         {(draft.conflicts ?? []).length === 0
           ? <p className={css.muted}>{t('noConflicts')}</p>
           : (
             <ul className={css.conflictList}>
               {(draft.conflicts ?? []).map((conflict, index) => (
-                <li key={`${conflict.fieldName ?? 'field'}-${String(index)}`}>
+                <li key={`${conflict.fieldName ?? 'field'}-${String(index)}`} className={css.conflictRow}>
                   <span className={css.fieldName}>
                     {FIELD_LABELS[conflict.fieldName ?? ''] ?? conflict.fieldName ?? '—'}
                   </span>
                   {(conflict.values ?? []).map((item, itemIndex) => (
-                    <code key={String(itemIndex)} className={css.conflictValue}>
-                      {String(item.value ?? '—')}
-                    </code>
+                    <Tag key={String(itemIndex)} tone="outline">{String(item.value ?? '—')}</Tag>
                   ))}
                 </li>
               ))}

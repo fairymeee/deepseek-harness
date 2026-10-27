@@ -1,17 +1,24 @@
-/* 建档草稿页面与对话卡片。 */
+/* 建档草稿页面：沿用 DSH 的页面约定——居中单列、最大宽度 960、
+   头部独占一行、分节用卡片。 */
 
 .page {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  align-items: center;
+  gap: 20px;
   box-sizing: border-box;
   height: 100%;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 20px 24px 32px;
-  background: var(--dsw-alias-bg-primary);
+  overflow: auto;
+  /* 顶部让出 agent 标签栏（overlay，不占布局）。变量由 Solar 工作区声明；
+     没装工作区时退化为 0，不留空带。 */
+  padding: var(--solar-tabbar-height, 0px) clamp(24px, 4vw, 48px) 48px;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
+}
+
+.page > * {
+  width: 100%;
+  max-width: 960px;
 }
 
 .empty {
@@ -19,175 +26,172 @@
   place-items: center;
   height: 100%;
   color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
 }
 
-.header {
+.pageHead {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  box-sizing: border-box;
+  padding-top: 28px;
+}
+
+.headMain {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
 }
 
 .title {
   margin: 0;
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 600;
+  line-height: 1.3;
 }
 
-.meta {
+.chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 6px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
+  align-items: center;
+  gap: 6px;
 }
-
-.ok { color: #16a34a; }
-.warn { color: #d97706; }
 
 .actions {
   display: flex;
   flex-shrink: 0;
+  align-items: center;
   gap: 8px;
 }
 
-.button,
-.primary {
-  height: 28px;
-  padding: 0 12px;
-  border: 1px solid var(--dsw-alias-border-secondary, rgba(0, 0, 0, 0.12));
-  border-radius: 7px;
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.primary {
-  border-color: transparent;
-  background: var(--dsw-alias-brand-primary, #2563eb);
-  color: #fff;
-}
-
-.button:disabled,
-.primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.error,
-.notice,
+/* 提示条：与卡片同宽，左侧一条色带表明性质。 */
 .banner {
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border-left: 3px solid transparent;
   font-size: 12px;
+  line-height: 1.5;
 }
 
-.error { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
-.notice { background: rgba(37, 99, 235, 0.12); color: #2563eb; }
-.banner { background: rgba(217, 119, 6, 0.12); color: #b45309; }
+.bannerError {
+  background: var(--dsw-alias-bg-layer-1);
+  border-left-color: var(--dsw-alias-label-danger, #dc2626);
+  color: var(--dsw-alias-label-primary);
+}
 
-.fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 10px;
+.bannerInfo {
+  background: var(--dsw-alias-bg-layer-1);
+  border-left-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary);
+}
+
+.bannerWarn {
+  background: var(--dsw-alias-bg-layer-1);
+  border-left-color: var(--dsw-alias-label-warning, #d97706);
+  color: var(--dsw-alias-label-primary);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.sectionTitle {
   margin: 0;
-  padding: 0;
-  list-style: none;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* 字段：两列自适应，标签在上、值在下，来源贴在标签右侧。 */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 18px 28px;
+  margin: 0;
 }
 
 .field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--dsw-alias-border-secondary, rgba(0, 0, 0, 0.1));
-  border-radius: 10px;
-}
-
-.fieldHead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  min-width: 0;
 }
 
 .fieldName {
-  font-weight: 500;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
 }
 
-.fieldSource {
-  color: var(--dsw-alias-label-secondary);
+.source {
+  color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
 }
 
-.value {
+.fieldValue {
+  margin: 0;
+  min-width: 0;
+}
+
+.valueButton {
+  display: block;
+  width: 100%;
   padding: 0;
   border: none;
   background: transparent;
   color: var(--dsw-alias-label-primary);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.5;
   text-align: left;
-  cursor: pointer;
-  word-break: break-all;
+  word-break: break-word;
+  cursor: text;
+  border-radius: 6px;
 }
 
-.value:hover {
-  color: var(--dsw-alias-brand-primary, #2563eb);
+.valueButton:hover {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.muted {
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .editor {
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 
 .input {
   flex: 1;
   min-width: 0;
-  height: 26px;
-  padding: 0 8px;
-  border: 1px solid var(--dsw-alias-border-secondary, rgba(0, 0, 0, 0.16));
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font-size: 12px;
-}
-
-.conflicts {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.sectionTitle {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.muted {
-  margin: 0;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
 }
 
 .conflictList {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 12px;
 }
 
-.conflictValue {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--dsw-alias-bg-tertiary, rgba(0, 0, 0, 0.06));
+.conflictRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 /* 对话里的草稿卡片。 */
@@ -196,10 +200,10 @@
   align-items: center;
   gap: 12px;
   margin-top: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--dsw-alias-border-secondary, rgba(0, 0, 0, 0.12));
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-secondary, rgba(0, 0, 0, 0.03));
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .cardText {
@@ -210,8 +214,8 @@
 }
 
 .cardTitle {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .cardMeta {
@@ -220,14 +224,6 @@
 }
 
 .cardButton {
-  flex-shrink: 0;
   margin-left: auto;
-  height: 26px;
-  padding: 0 10px;
-  border: none;
-  border-radius: 6px;
-  background: var(--dsw-alias-brand-primary, #2563eb);
-  color: #fff;
-  font-size: 12px;
-  cursor: pointer;
+  flex-shrink: 0;
 }

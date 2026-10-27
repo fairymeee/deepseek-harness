@@ -30,6 +30,9 @@
       "path": "../ui-tool"
     },
     {
+      "path": "../ui-primitives"
+    },
+    {
       "path": "../locale/tsconfig.client.json"
     }
   ]

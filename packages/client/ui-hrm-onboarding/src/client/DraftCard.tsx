@@ -9,6 +9,7 @@
 import type { ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DraftSelectionStore } from './store.ts'
 import { readSurface } from './store.ts'
 import type { HrmOnboardingKey } from './locales.ts'
@@ -56,22 +57,24 @@ export function DraftCard({
   const draftId = Number(surface.objectId)
   if (!Number.isSafeInteger(draftId) || draftId <= 0) return null
 
+  const viewing = selection.getSnapshot().draftId === draftId
+
   return (
     <div className={css.card} data-hrm-draft-card={surface.objectId}>
       <div className={css.cardText}>
         <span className={css.cardTitle}>{t('title')}</span>
         <span className={css.cardMeta}>
-          #{surface.objectId}
-          {selection.getSnapshot().draftId === draftId ? ' · 正在查看' : ''}
+          #{surface.objectId}{viewing ? ` · ${t('viewing')}` : ''}
         </span>
       </div>
-      <button
-        type="button"
+      <Button
+        size="sm"
+        variant="outline"
         className={css.cardButton}
         onClick={() => { openDraft(draftId) }}
       >
         {t('open')}
-      </button>
+      </Button>
     </div>
   )
 }
