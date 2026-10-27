@@ -252,24 +252,37 @@ export function WorkspaceTabBar({
         {state.tabs.map((tab) => {
           const active = tab.id === state.activeId
           const label = tab.pinned ? t('workbench') : tab.label
+          const activate = (): void => {
+            if (tab.pinned) {
+              openWorkbench()
+              return
+            }
+            const app = tab.appId === undefined ? undefined : appById.get(tab.appId)
+            if (app !== undefined) openApp(app)
+          }
           return (
-            <div key={tab.id} className={css.tabWrap}>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={active ? css.tabActive : css.tab}
-                onClick={() => {
-                  if (tab.pinned) {
-                    openWorkbench()
-                    return
-                  }
-                  const app = tab.appId === undefined ? undefined : appById.get(tab.appId)
-                  if (app !== undefined) openApp(app)
-                }}
-              >
-                {label}
-              </button>
+            <div
+              key={tab.id}
+              role="tab"
+              tabIndex={active ? 0 : -1}
+              aria-selected={active}
+              className={active ? css.tabActive : css.tab}
+              title={label}
+              onClick={activate}
+              // 中键关闭：Chrome 的老习惯，用户会下意识去点。
+              onAuxClick={(event) => {
+                if (event.button !== 1 || tab.pinned) return
+                event.preventDefault()
+                closeTab(tab)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  activate()
+                }
+              }}
+            >
+              <span className={css.tabLabel}>{label}</span>
               {!tab.pinned && (
                 <button
                   type="button"

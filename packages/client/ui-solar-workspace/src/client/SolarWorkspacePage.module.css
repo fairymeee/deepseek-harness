@@ -57,9 +57,16 @@
   font-size: 13px;
 }
 
-/* 常驻标签栏：挂在 shell.overlay 上，横跨中栏顶部。
-   只覆盖中栏宽度（左侧栏由 frame 的 --dsh 变量给出）。 */
+/* 标签栏，参考 Chrome 的形态与交互：
+   - 标签贴底、上方圆角、激活项与下方内容同色（视觉上连成一片）；
+   - 未激活项透明，悬停才浮出底色；
+   - 相邻标签之间一条细分割线，激活/悬停时隐藏；
+   - 关闭按钮只在激活或悬停时出现。 */
+
+/* 常驻标签栏：挂在 shell.overlay 上，横跨中栏顶部。 */
 .tabBarOverlay {
+  --solar-tab-bg: var(--dsw-alias-bg-layer-1);
+  --solar-tab-strip: var(--dsw-alias-bg-base);
   position: absolute;
   /* 贴住中栏顶部：左侧让出侧栏宽度，右侧让出右栏。 */
   top: 0;
@@ -68,23 +75,26 @@
   z-index: 21;
   display: flex;
   align-items: flex-end;
-  gap: 4px;
   box-sizing: border-box;
   height: var(--solar-tabbar-height, 40px);
-  padding: 0 10px;
+  padding: 0 6px;
   padding-top: var(--dsh-frame-top-clearance, 0px);
-  background: var(--dsw-alias-bg-primary);
-  border-bottom: 1px solid var(--dsw-alias-border-secondary, rgba(0, 0, 0, 0.1));
+  background: var(--solar-tab-strip);
 }
 
 /* 内联版：并进会话头最左侧，与会话标题同一行。
-   不定位、不设背景，高度由会话头决定。 */
+   会话头本身已是内容色，激活项改用更深一层的底色区分。 */
 .tabBarInline {
+  --solar-tab-bg: var(--dsw-alias-bg-layer-2);
+  --solar-tab-strip: transparent;
   display: flex;
   align-items: center;
-  gap: 2px;
-  min-width: 0;
-  max-width: 60%;
+  /* 由内容撑开（标签容器在内联模式下不滚动，见下），超过上限就裁剪：
+     会话头空间紧张时先压标题，不把标签压成两三个字。 */
+  flex: 0 0 auto;
+  /* 父级是零宽插槽容器，百分比没意义；用视口上限兜底，标签多时先压标题。 */
+  max-width: 46vw;
+  overflow: hidden;
   margin-right: 8px;
   padding-right: 8px;
   border-right: 1px solid var(--dsw-alias-border-l2);
@@ -93,110 +103,205 @@
 .tabBarInline .tab,
 .tabBarInline .tabActive {
   height: 26px;
-  border-radius: 7px;
-  padding: 0 9px;
-  font-size: 12px;
+  border-radius: 6px;
+  padding: 0 8px;
 }
 
 .tabBarInline .newTab {
   width: 22px;
   height: 22px;
-  margin-bottom: 0;
+  margin: 0 0 0 2px;
 }
 
 .tabs {
   display: flex;
   align-items: flex-end;
-  gap: 2px;
   min-width: 0;
+  height: 100%;
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+.tabBarInline .tabs {
+  align-items: center;
+  height: auto;
+  gap: 2px;
+  flex: 0 1 auto;
+  /* 关键：内联时不滚动。`overflow: auto` 会让容器的固有宽度变成 0，
+     父级据此排版就会把标签压成两三个字。 */
+  overflow: visible;
 }
 
 .tabs::-webkit-scrollbar {
   display: none;
 }
 
-.tabWrap {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  max-width: 200px;
-}
-
+/* 一个标签：宽度随数量收缩，最多 240px（Chrome 也是这个量级）。 */
 .tab,
 .tabActive {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  height: 30px;
-  padding: 0 10px;
+  gap: 8px;
+  flex: 0 1 auto;
+  box-sizing: border-box;
+  min-width: 44px;
+  max-width: 240px;
+  height: 34px;
+  padding: 0 6px 0 12px;
   border: none;
-  border-radius: 7px 7px 0 0;
+  border-radius: 8px 8px 0 0;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  text-align: left;
+  cursor: default;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.tabBarInline .tab,
+.tabBarInline .tabActive {
+  /* 可收缩，但保底放得下三个字加关闭按钮。 */
+  flex: 0 1 auto;
+  min-width: 72px;
+  height: 26px;
+  max-width: 180px;
+}
+
+/* 相邻标签之间的细分割线：激活项与悬停项不画，紧邻激活项的那个也不画。 */
+.tab::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 16px;
+  transform: translateY(-50%);
+  background: var(--dsw-alias-border-l2);
+}
+
+.tab:first-child::before,
+.tab:hover::before,
+.tabActive + .tab::before {
+  display: none;
+}
+
+.tabBarInline .tab::before {
+  display: none;
+}
+
+.tabBarInline .tab,
+.tabBarInline .tabActive {
+  border-radius: 6px;
+  padding: 0 8px;
 }
 
 .tab:hover {
-  background: var(--dsw-alias-bg-tertiary, rgba(0, 0, 0, 0.06));
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 70%, transparent);
   color: var(--dsw-alias-label-primary);
 }
 
+/* 激活项：与下方内容同色，形成"选中的标签连着页面"的观感。 */
 .tabActive {
-  background: var(--dsw-alias-bg-tertiary, rgba(0, 0, 0, 0.1));
+  background: var(--solar-tab-bg);
   color: var(--dsw-alias-label-primary);
 }
 
-/* 关闭按钮只在激活标签上出现，避免一排 × 干扰阅读。 */
-.tabClose {
+/* 激活标签底部的两个外翻小圆角，Chrome 的标志性细节。 */
+.tabActive::before,
+.tabActive::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.tabActive::before {
+  left: -8px;
+  border-bottom-right-radius: 8px;
+  box-shadow: 3px 3px 0 0 var(--solar-tab-bg);
+}
+
+.tabActive::after {
+  right: -8px;
+  border-bottom-left-radius: 8px;
+  box-shadow: -3px -3px 0 0 var(--solar-tab-bg);
+}
+
+.tabBarInline .tabActive::before,
+.tabBarInline .tabActive::after {
   display: none;
+}
+
+/* 标签标题：单行省略，和 Chrome 一样。 */
+.tabLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 关闭按钮：圆形，只在激活或悬停时出现。 */
+.tabClose {
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-left: -4px;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
+  color: inherit;
+  font-size: 14px;
   line-height: 1;
+  opacity: 0;
   cursor: pointer;
+  transition: opacity 100ms ease, background 100ms ease;
 }
 
-.tabWrap:hover .tabClose {
-  display: flex;
+.tab:hover .tabClose,
+.tabActive .tabClose {
+  opacity: 1;
 }
 
 .tabClose:hover {
-  background: var(--dsw-alias-bg-tertiary, rgba(0, 0, 0, 0.12));
-  color: var(--dsw-alias-label-primary);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
+}
+
+.tabBarInline .tabClose {
+  width: 14px;
+  height: 14px;
+  font-size: 12px;
 }
 
 .newTab {
-  flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin: 0 0 3px 4px;
+  padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font-size: 16px;
   line-height: 1;
-  cursor: pointer;
+  cursor: default;
+  transition: background 100ms ease, color 100ms ease;
 }
 
 .newTab:hover {
-  background: var(--dsw-alias-bg-tertiary, rgba(0, 0, 0, 0.08));
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 80%, transparent);
   color: var(--dsw-alias-label-primary);
 }
 
