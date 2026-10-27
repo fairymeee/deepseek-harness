@@ -245,9 +245,81 @@ export function apply(ctx) {
         })())
         : await callJava(endpoint, { method, body: JSON.stringify(payload) })
 
-      return withSurface(result, tool.resultSurface, taskId)
+      const shaped = applyView(result, tool.resultView)
+      return withSurface(shaped, tool.resultSurface, taskId)
     },
   }))
+}
+
+/** 字段的中文名，用于把结果翻译成业务语言。 */
+const FIELD_LABELS = {
+  name: '姓名', mobile: '手机号', email: '邮箱', sex: '性别', birthday: '生日',
+  idType: '证件类型', idNumber: '证件号', highestEducation: '最高学历',
+  entryStatus: '入职状态', type: '员工类型', entryTime: '入职日期',
+  probation: '试用期月数', postName: '岗位名称', postLevel: '岗位职级',
+  workCity: '工作城市', workAddress: '工作地址', jobNumber: '工号', remark: '备注',
+  // 不是员工字段但会出现在缺失项里
+  targetDeptId: '部门',
+  attachments: '附件',
+}
+
+/**
+ * 把字段名翻成中文。
+ * @param key 字段键
+ * @returns 中文名；没有映射时原样返回
+ */
+function labelOf(key) {
+  return FIELD_LABELS[key] ?? key
+}
+
+/**
+ * 把建档草稿整形为面向业务的形状。
+ *
+ * Java 返回的是接口结构（status 数字码、readyForConfirmation、
+ * missingFields 等）。模型会把这些英文键原样写进回复，用户看不懂。
+ * 这里只留业务上真正需要的信息，并附一句现成的话，模型通常直接沿用。
+ *
+ * @param draft Java 返回的草稿
+ * @returns 面向业务的结果
+ */
+function viewHrmDraft(draft) {
+  const missing = Array.isArray(draft.missingFields) ? draft.missingFields : []
+  const awaiting = Array.isArray(draft.awaitingInputFields) ? draft.awaitingInputFields : []
+  const conflicts = Array.isArray(draft.conflicts) ? draft.conflicts : []
+  const confirmed = draft.confirmationValid === true
+  const ready = draft.readyForConfirmation === true
+
+  const parts = []
+  if (confirmed) parts.push('这份草稿你已经确认过')
+  if (missing.length > 0) parts.push(`还差${missing.map(labelOf).join('、')}`)
+  if (awaiting.length > 0) parts.push(`有${awaiting.map(labelOf).join('、')}需要你在页面上填写`)
+  if (conflicts.length > 0) parts.push(`有${String(conflicts.length)}处信息互相矛盾需要核对`)
+  if (ready && !confirmed) parts.push('资料齐全，可以提交')
+  if (ready && confirmed) parts.push('等审批通过后才会创建员工')
+
+  return {
+    draftId: draft.id,
+    fields: draft.fields ?? {},
+    missing: missing.map(labelOf),
+    needsUserInput: awaiting.map(labelOf),
+    conflicts: conflicts.map(item => labelOf(item?.fieldName)),
+    // 页面要用版本号做乐观锁；模型只用来回传，不解读
+    version: draft.version,
+    note: parts.length > 0 ? `${parts.join('；')}。` : '草稿已更新。',
+  }
+}
+
+/**
+ * 按配置整形结果。
+ * @param result Java 返回的数据
+ * @param view 整形器标识；未配置时原样返回
+ * @returns 整形后的结果
+ */
+function applyView(result, view) {
+  if (view === 'hrm.draft' && result !== null && typeof result === 'object' && !Array.isArray(result)) {
+    return viewHrmDraft(result)
+  }
+  return result
 }
 
 /**
@@ -264,7 +336,8 @@ export function apply(ctx) {
 function withSurface(result, surfaceId, taskId) {
   if (typeof surfaceId !== 'string' || surfaceId === '') return result
   if (result === null || typeof result !== 'object' || Array.isArray(result)) return result
-  const objectId = result.id
+  // 整形后的结果用业务化的键名（draftId），原始结构用 id，两者都认。
+  const objectId = result.draftId ?? result.id
   if (objectId === undefined || objectId === null) return result
   return {
     ...result,
