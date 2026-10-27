@@ -23,6 +23,9 @@ importers:
 
   .:
     devDependencies:
+      '@ciicjx/dsh-client-ui-solar-workspace':
+        specifier: workspace:*
+        version: link:packages/client/ui-solar-workspace
       '@deepseek-ai/dsh-agent':
         specifier: workspace:*
         version: link:packages/core/agent
@@ -2688,6 +2691,9 @@ importers:
 
   packages/bundle/web-app:
     dependencies:
+      '@ciicjx/dsh-client-ui-solar-workspace':
+        specifier: workspace:*
+        version: link:../../client/ui-solar-workspace
       '@deepseek-ai/dsh-agent-instructions':
         specifier: workspace:*
         version: link:../../context/agent-instructions
@@ -6061,6 +6067,8 @@ importers:
       react:
         specifier: ^18.2.0
         version: 18.3.1
+
+  packages/client/ui-solar-workspace: {}
 
   packages/client/ui-subagent:
     devDependencies:

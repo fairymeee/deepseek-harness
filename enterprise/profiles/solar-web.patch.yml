@@ -1,0 +1,61 @@
+# Solar 企业发行 profile patch。
+#
+# 应用顺序：web-app bundle → 本文件。这里按 id 覆盖或新增行。
+#
+# 目标：把官方「编码代理」改造成企业业务助手，并挂上 Solar 工作区。
+# 企业差异只走 profile 与插件，不改官方客户端源码。
+
+# ── 人设 ───────────────────────────────────────────────────────────────────
+# 官方 web profile 的人设是编码代理，企业发行必须换掉。
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      You are the Solar enterprise business assistant running inside the
+      company's private agent host. You help employees finish real business
+      work through the company's own business systems.
+      Answer in the user's language. Be concise and concrete: state what you
+      did, what you could not do, and what you need from the user.
+      Never claim a business write, approval submission, or external send
+      succeeded unless a tool result confirms it.
+
+# ── 出口治理 ───────────────────────────────────────────────────────────────
+# 企业发行不得把完整会话日志作为请求字段发送给官方 API。
+- id: session-log-deepseek
+  disabled: true
+
+# 遥测与反馈不进入企业发行。
+- id: desktop-product-telemetry
+  disabled: true
+
+- id: product-analytics
+  disabled: true
+
+- id: message-feedback
+  disabled: true
+
+# ── 工具面 ─────────────────────────────────────────────────────────────────
+# 业务场景默认不暴露通用 Shell、任意文件系统与任意网络请求。
+# 业务能力通过场景包提供的结构化工具进入，模型不能自行构造请求。
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+- id: tool-jobs
+  disabled: true
+
+- id: tool-fs
+  disabled: true
+
+- id: tool-fs-search
+  disabled: true
+
+- id: tool-web
+  disabled: true
+
+# ── 客户端 ─────────────────────────────────────────────────────────────────
+# Solar 工作区：每个一级菜单一个应用标签，内容用同源 iframe 承载。
+- insert:
+    - id: ui-solar-workspace
+      name: '@ciicjx/dsh-client-ui-solar-workspace'
