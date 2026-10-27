@@ -75,21 +75,22 @@
   line-height: 1.5;
 }
 
+/* 状态色用与 Tag 相同的 tint 方式，明暗主题都跟着调色板走。 */
 .bannerError {
-  background: var(--dsw-alias-bg-layer-1);
-  border-left-color: var(--dsw-alias-label-danger, #dc2626);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+  border-left-color: var(--dsw-alias-state-error-primary);
   color: var(--dsw-alias-label-primary);
 }
 
 .bannerInfo {
-  background: var(--dsw-alias-bg-layer-1);
-  border-left-color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent);
+  border-left-color: var(--dsw-alias-state-business-primary);
   color: var(--dsw-alias-label-primary);
 }
 
 .bannerWarn {
-  background: var(--dsw-alias-bg-layer-1);
-  border-left-color: var(--dsw-alias-label-warning, #d97706);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
+  border-left-color: var(--dsw-alias-state-warn-primary);
   color: var(--dsw-alias-label-primary);
 }
 
