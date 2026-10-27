@@ -219,6 +219,7 @@
     "verify-product-use": "tsx scripts/verify-product-use.ts"
   },
   "devDependencies": {
+    "@ciicjx/dsh-client-ui-hrm-onboarding": "workspace:*",
     "@ciicjx/dsh-client-ui-solar-workspace": "workspace:*",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-browser-use": "workspace:*",

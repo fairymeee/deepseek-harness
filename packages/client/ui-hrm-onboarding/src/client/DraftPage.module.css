@@ -1,0 +1,233 @@
+/* 建档草稿页面与对话卡片。 */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 32px;
+  background: var(--dsw-alias-bg-primary);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.ok { color: #16a34a; }
+.warn { color: #d97706; }
+
+.actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.button,
+.primary {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-secondary, rgba(0, 0, 0, 0.12));
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: transparent;
+  background: var(--dsw-alias-brand-primary, #2563eb);
+  color: #fff;
+}
+
+.button:disabled,
+.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error,
+.notice,
+.banner {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.error { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
+.notice { background: rgba(37, 99, 235, 0.12); color: #2563eb; }
+.banner { background: rgba(217, 119, 6, 0.12); color: #b45309; }
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-secondary, rgba(0, 0, 0, 0.1));
+  border-radius: 10px;
+}
+
+.fieldHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fieldName {
+  font-weight: 500;
+}
+
+.fieldSource {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+.value {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.value:hover {
+  color: var(--dsw-alias-brand-primary, #2563eb);
+}
+
+.editor {
+  display: flex;
+  gap: 6px;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-secondary, rgba(0, 0, 0, 0.16));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+}
+
+.conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.muted {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.conflictList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.conflictValue {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-tertiary, rgba(0, 0, 0, 0.06));
+}
+
+/* 对话里的草稿卡片。 */
+.card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-secondary, rgba(0, 0, 0, 0.12));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-secondary, rgba(0, 0, 0, 0.03));
+}
+
+.cardText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cardTitle {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cardMeta {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+.cardButton {
+  flex-shrink: 0;
+  margin-left: auto;
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--dsw-alias-brand-primary, #2563eb);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}

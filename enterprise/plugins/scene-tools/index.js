@@ -175,6 +175,10 @@ export function apply(ctx) {
           // 把参数契约一并给出：没有它模型只能猜参数名。
           // 标了 x-source=task 的字段由运行时注入，不需要也不允许提供。
           inputSchema: parseSchema(tool.inputSchema),
+          // 有对应界面的动作会带这个标识：调用成功后客户端据此打开业务页面。
+          ...(typeof tool.resultSurface === 'string' && tool.resultSurface !== ''
+            ? { surface: tool.resultSurface }
+            : {}),
         })),
       }
     },
@@ -230,17 +234,46 @@ export function apply(ctx) {
       // 任务号由运行时注入：它标识"这次对话"，不是业务参数，模型不该编造。
       const payload = { ...body, ...injectTaskFields(schema, taskId) }
 
-      if (method === 'GET') {
-        const query = new URLSearchParams()
-        for (const [key, value] of Object.entries(payload)) {
-          if (value !== undefined && value !== null) query.set(key, String(value))
-        }
-        const suffix = query.toString() === '' ? '' : `?${query.toString()}`
-        return await callJava(`${endpoint}${suffix}`)
-      }
-      return await callJava(endpoint, { method, body: JSON.stringify(payload) })
+      const result = method === 'GET'
+        ? await callJava((() => {
+          const query = new URLSearchParams()
+          for (const [key, value] of Object.entries(payload)) {
+            if (value !== undefined && value !== null) query.set(key, String(value))
+          }
+          const suffix = query.toString() === '' ? '' : `?${query.toString()}`
+          return `${endpoint}${suffix}`
+        })())
+        : await callJava(endpoint, { method, body: JSON.stringify(payload) })
+
+      return withSurface(result, tool.resultSurface, taskId)
     },
   }))
+}
+
+/**
+ * 给结果附上界面引用。
+ *
+ * 客户端据此渲染"打开草稿"这类入口：模型不需要构造页面地址，只拿业务对象
+ * 编号；打开哪个界面由场景配置决定，客户端只接受已注册的标识。
+ *
+ * @param result Java 返回的数据
+ * @param surfaceId 界面标识；未配置时原样返回
+ * @param taskId 当前任务编号
+ * @returns 附带 surface 的结果
+ */
+function withSurface(result, surfaceId, taskId) {
+  if (typeof surfaceId !== 'string' || surfaceId === '') return result
+  if (result === null || typeof result !== 'object' || Array.isArray(result)) return result
+  const objectId = result.id
+  if (objectId === undefined || objectId === null) return result
+  return {
+    ...result,
+    surface: {
+      id: surfaceId,
+      objectId: String(objectId),
+      taskId,
+    },
+  }
 }
 
 /**

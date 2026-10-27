@@ -23,6 +23,9 @@ importers:
 
   .:
     devDependencies:
+      '@ciicjx/dsh-client-ui-hrm-onboarding':
+        specifier: workspace:*
+        version: link:packages/client/ui-hrm-onboarding
       '@ciicjx/dsh-client-ui-solar-workspace':
         specifier: workspace:*
         version: link:packages/client/ui-solar-workspace
@@ -2694,6 +2697,9 @@ importers:
 
   packages/bundle/web-app:
     dependencies:
+      '@ciicjx/dsh-client-ui-hrm-onboarding':
+        specifier: workspace:*
+        version: link:../../client/ui-hrm-onboarding
       '@ciicjx/dsh-client-ui-solar-workspace':
         specifier: workspace:*
         version: link:../../client/ui-solar-workspace
@@ -4183,6 +4189,8 @@ importers:
       react-dom:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
+
+  packages/client/ui-hrm-onboarding: {}
 
   packages/client/ui-input-trigger:
     devDependencies:

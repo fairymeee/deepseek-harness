@@ -69,3 +69,8 @@
 - insert:
     - id: ui-solar-workspace
       name: '@ciicjx/dsh-client-ui-solar-workspace'
+
+# HRM 建档界面：对话里的草稿卡片 + 与对话共编同一份草稿的页面。
+- insert:
+    - id: ui-hrm-onboarding
+      name: '@ciicjx/dsh-client-ui-hrm-onboarding'
