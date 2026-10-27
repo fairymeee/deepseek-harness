@@ -39,7 +39,7 @@ export interface SolarWorkspaceInjected {
   readonly closeTab: (tab: AppTab) => void
 }
 
-/** 标签栏 props（overlay 版）。 */
+/** 标签栏 props。 */
 export interface WorkspaceTabBarProps {
   readonly tabs: AppTabsStore
   /** 应用目录 store；组件内部订阅，不用快照。 */
@@ -48,6 +48,13 @@ export interface WorkspaceTabBarProps {
   readonly openApp: (app: SolarApp) => void
   readonly closeTab: (tab: AppTab) => void
   readonly t: (key: SolarWorkspaceKey) => string
+  /**
+   * 渲染位置。
+   *
+   * `inline`：并进会话头最左侧，会话可见时用——和会话标题同一行，不重叠。
+   * `overlay`：浮在内容区顶部，应用标签激活时用（此时会话头不在）。
+   */
+  readonly variant?: 'overlay' | 'inline'
 }
 
 /** 完整 props。 */
@@ -215,7 +222,7 @@ function watchRoute(frame: HTMLIFrameElement, onRoute: (route: string) => void):
  * @param props 标签 store、应用目录与回调
  */
 export function WorkspaceTabBar({
-  tabs, apps, openWorkbench, openApp, closeTab, t,
+  tabs, apps, openWorkbench, openApp, closeTab, t, variant = 'overlay',
 }: WorkspaceTabBarProps) {
   const state = useSyncExternalStore(tabs.subscribe, tabs.getSnapshot, tabs.getSnapshot)
   const appState = useSyncExternalStore(apps.subscribe, apps.getSnapshot, apps.getSnapshot)
@@ -230,8 +237,17 @@ export function WorkspaceTabBar({
     if (next !== undefined) openApp(next)
   }
 
+  // 会话可见时不画 overlay：标签此时并进会话头（inline），再画一条会压在
+  // 会话标题上，两段文字叠在一起。
+  const activeTab = state.tabs.find(tab => tab.id === state.activeId)
+  if (variant === 'overlay' && activeTab?.appId === undefined) return null
+
   return (
-    <div className={css.tabBarOverlay} role="tablist" aria-label={t('tabsLabel')}>
+    <div
+      className={variant === 'inline' ? css.tabBarInline : css.tabBarOverlay}
+      role="tablist"
+      aria-label={t('tabsLabel')}
+    >
       <div className={css.tabs}>
         {state.tabs.map((tab) => {
           const active = tab.id === state.activeId
@@ -280,7 +296,7 @@ export function WorkspaceTabBar({
           +
         </button>
       </div>
-      <NotificationBell t={t} />
+      {variant === 'overlay' && <NotificationBell t={t} />}
     </div>
   )
 }

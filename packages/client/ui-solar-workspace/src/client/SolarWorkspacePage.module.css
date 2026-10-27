@@ -77,6 +77,33 @@
   border-bottom: 1px solid var(--dsw-alias-border-secondary, rgba(0, 0, 0, 0.1));
 }
 
+/* 内联版：并进会话头最左侧，与会话标题同一行。
+   不定位、不设背景，高度由会话头决定。 */
+.tabBarInline {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 60%;
+  margin-right: 8px;
+  padding-right: 8px;
+  border-right: 1px solid var(--dsw-alias-border-l2);
+}
+
+.tabBarInline .tab,
+.tabBarInline .tabActive {
+  height: 26px;
+  border-radius: 7px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.tabBarInline .newTab {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 0;
+}
+
 .tabs {
   display: flex;
   align-items: flex-end;

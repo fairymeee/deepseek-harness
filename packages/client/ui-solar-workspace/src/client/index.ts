@@ -15,6 +15,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SolarAppsStore, type SolarApp } from './apps.ts'
 import { AppTabsStore, WORKBENCH_TAB_ID, type AppTab } from './tabs.ts'
 import {
@@ -130,6 +131,23 @@ export function apply(ctx: ClientContext): void {
       openApp,
       closeTab,
       t,
+    }),
+  }, WorkspaceTabBar))
+
+  // 会话可见时，标签并进会话头最左侧：那里与会话标题同一行，
+  // 不会像 overlay 那样压在标题上。会话头只在对话界面存在，
+  // 所以应用标签激活时由上面的 overlay 版接管。
+  ctx.slots.inject('conversation.header.leading', () => ctx.slots.register({
+    name: 'conversation.header.leading',
+    locale: NS,
+    inject: (): WorkspaceTabBarProps => ({
+      tabs,
+      apps,
+      openWorkbench,
+      openApp,
+      closeTab,
+      t,
+      variant: 'inline',
     }),
   }, WorkspaceTabBar))
 
