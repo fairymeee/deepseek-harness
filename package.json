@@ -244,6 +244,7 @@
     "@deepseek-ai/dsh-tool-terminal": "workspace:*",
     "@deepseek-ai/dsh-tool-working-directory": "workspace:*",
     "@deepseek-ai/dsh-tool-workspace-dependencies": "workspace:*",
+    "@deepseek-ai/dsh-tools": "workspace:*",
     "@deepseek-ai/dsh-web-fetch-http": "workspace:*",
     "@deepseek-ai/dsh-working-directory": "workspace:*",
     "@stylistic/eslint-plugin": "^5.10.0",
