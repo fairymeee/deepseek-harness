@@ -21,6 +21,10 @@ import { WORKBENCH_TAB_ID } from './tabs.ts'
 import {
   fetchNotifications, markNotificationRead, unreadCount, type NotifyMessage,
 } from './notifications.ts'
+import {
+  IconClockOutlineRegular, IconNewChatOutlineRegular, IconPanelLeftOutlineRegular,
+  IconSettingsOutlineRegular,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './SolarWorkspacePage.module.css'
 
 /** 工作区面板 id。 */
@@ -52,6 +56,12 @@ export interface WorkspaceTabBarProps {
   readonly assistant: AssistantToggleStore
   /** 收起/展开助手面板。 */
   readonly toggleAssistant: () => void
+  /** 打开这个应用的历史会话。 */
+  readonly showHistory: () => void
+  /** 在这个应用里新建一个会话。 */
+  readonly newSession: () => void
+  /** 打开设置。 */
+  readonly openSettings: () => void
   readonly t: (key: SolarWorkspaceKey) => string
 }
 
@@ -223,7 +233,8 @@ function watchRoute(frame: HTMLIFrameElement, onRoute: (route: string) => void):
  * @param props 标签 store、应用目录与回调
  */
 export function WorkspaceTabBar({
-  tabs, apps, openWorkbench, openApp, closeTab, assistant, toggleAssistant, t,
+  tabs, apps, openWorkbench, openApp, closeTab, assistant, toggleAssistant,
+  showHistory, newSession, openSettings, t,
 }: WorkspaceTabBarProps) {
   const assistantCollapsed = useSyncExternalStore(
     assistant.subscribe, assistant.getSnapshot, assistant.getSnapshot,
@@ -305,16 +316,52 @@ export function WorkspaceTabBar({
         </button>
       </div>
       {state.activeId !== WORKBENCH_TAB_ID && (
-        <button
-          type="button"
-          className={css.assistantToggle}
-          aria-label={assistantCollapsed ? t('showAssistant') : t('hideAssistant')}
-          aria-pressed={!assistantCollapsed}
-          title={assistantCollapsed ? t('showAssistant') : t('hideAssistant')}
-          onClick={toggleAssistant}
-        >
-          <span aria-hidden="true">{assistantCollapsed ? '▤' : '▥'}</span>
-        </button>
+        <div className={css.assistantActions}>
+          {/* 助手面板的操作：历史、新建、设置，与 DeepClaw 的助手标题栏一致。 */}
+          <button
+            type="button"
+            className={css.assistantAction}
+            aria-label={t('history')}
+            title={t('history')}
+            onClick={showHistory}
+          >
+            <IconClockOutlineRegular />
+          </button>
+          <button
+            type="button"
+            className={css.assistantAction}
+            aria-label={t('newSession')}
+            title={t('newSession')}
+            onClick={newSession}
+          >
+            <IconNewChatOutlineRegular />
+          </button>
+          <button
+            type="button"
+            className={css.assistantAction}
+            aria-label={t('settings')}
+            title={t('settings')}
+            onClick={openSettings}
+          >
+            <IconSettingsOutlineRegular />
+          </button>
+          <button
+            type="button"
+            className={css.assistantAction}
+            aria-label={assistantCollapsed ? t('showAssistant') : t('hideAssistant')}
+            aria-pressed={!assistantCollapsed}
+            title={assistantCollapsed ? t('showAssistant') : t('hideAssistant')}
+            onClick={toggleAssistant}
+          >
+            {/* 与官方右栏的收起按钮同一个图标，方向靠旋转区分。 */}
+            <span
+              aria-hidden="true"
+              style={assistantCollapsed ? { transform: 'scaleX(-1)' } : undefined}
+            >
+              <IconPanelLeftOutlineRegular />
+            </span>
+          </button>
+        </div>
       )}
       <NotificationBell t={t} />
     </div>

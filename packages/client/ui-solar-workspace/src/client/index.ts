@@ -44,7 +44,7 @@ export const NS = 'solarWorkspace'
  * `dsh.client.inject` 是包名，只负责加载顺序，两者都要写。
  */
 export const inject = [
-  'slots', 'layout', 'locale', 'sessions', 'workspaces', 'uiWorkspace',
+  'slots', 'layout', 'locale', 'sessions', 'workspaces', 'uiWorkspace', 'shortcuts',
 ]
 
 /**
@@ -261,6 +261,45 @@ export function apply(ctx: ClientContext): void {
     restoreConsoleSession()
   }
 
+  /** 打开当前应用的历史：展开 agent 侧栏，会话按工作区（应用）分组列出。 */
+  const showHistory = (): void => {
+    if (sidebarCollapsed()) ctx.layout.toggleSidebar()
+  }
+
+  /** 在当前应用的工作区里新建会话。 */
+  const newSession = (): void => {
+    const api = uiWorkspaceApi()
+    if (api === undefined) return
+    const state = tabs.getSnapshot()
+    const active = state.tabs.find(tab => tab.id === state.activeId)
+    const appId = active?.appId
+    const workspaceId = appId === undefined ? undefined : bindings.get(appId)?.workspaceId
+    // 没有工作区绑定（还没解析完）时交给官方默认行为：在当前工作区新建。
+    api.startSession(workspaceId as never)
+  }
+
+  /** 打开设置：走官方命令，和 ⌘, 是同一条路径。 */
+  const openSettings = (): void => {
+    const shortcuts = (ctx as unknown as {
+      shortcuts?: { invoke(id: string, context: Record<string, unknown>): void }
+    }).shortcuts
+    // 设置面板只由官方命令打开，而公开的 shortcuts 服务不暴露"执行命令"，
+    // 内部注册表有。这里按最小面积借用：拿不到就退回展开侧栏，
+    // 让用户从侧栏的设置入口进去，而不是点了没反应。
+    const registry = (shortcuts as unknown as {
+      registry?: { invoke(id: string, context: Record<string, unknown>): void }
+    } | undefined)?.registry
+    if (registry === undefined) {
+      if (sidebarCollapsed()) ctx.layout.toggleSidebar()
+      return
+    }
+    try {
+      registry.invoke('settings.open', { source: 'menu', region: 'page', modal: null, target: null })
+    } catch {
+      if (sidebarCollapsed()) ctx.layout.toggleSidebar()
+    }
+  }
+
   /**
    * 打开一个应用：新增标签、并排显示，并把助手切到该应用最近的会话。
    *
@@ -465,6 +504,9 @@ export function apply(ctx: ClientContext): void {
       closeTab,
       assistant,
       toggleAssistant,
+      showHistory,
+      newSession,
+      openSettings,
       t,
     }),
   }, WorkspaceTabBar))
@@ -657,6 +699,8 @@ export function apply(ctx: ClientContext): void {
  * 折中到 520：会话仍可读，应用窗格还留得住一张表。
  */
 const MIN_ASSISTANT_WIDTH = 520
+/** 空间紧张时助手栏的保底宽度。 */
+const MIN_ASSISTANT_NARROW = 360
 /**
  * 应用窗格的目标宽度。
  *
@@ -664,9 +708,6 @@ const MIN_ASSISTANT_WIDTH = 520
  * 页面切到移动端排版。应用窗格必须让开这个断点，否则原生侧栏根本不出现。
  */
 const PREFERRED_APP_WIDTH = 768
-/** 应用窗格的最小可接受宽度。 */
-const MIN_APP_WIDTH = 520
-
 /**
  * 算出应用窗格该占多宽。
  *
@@ -677,10 +718,12 @@ const MIN_APP_WIDTH = 520
  * @returns 应用窗格宽度
  */
 function splitWidthFor(center: number): number {
-  const available = center - MIN_ASSISTANT_WIDTH
-  if (available < MIN_APP_WIDTH) return Math.round(center)
-  const preferred = Math.max(available, PREFERRED_APP_WIDTH)
-  return Math.round(Math.min(preferred, center - 360))
+  // 窄到放不下助手时整栏给应用，用户用「Workbench」标签切回会话。
+  if (center < 900) return Math.round(center)
+  // 优先让应用窗格过桌面断点（原生侧栏才在），助手拿剩下的；
+  // 中栏被侧栏挤窄时两边一起退让，助手保底 360px——整块消失太突兀。
+  const preferred = Math.max(center - MIN_ASSISTANT_WIDTH, PREFERRED_APP_WIDTH)
+  return Math.round(Math.min(preferred, center - MIN_ASSISTANT_NARROW))
 }
 
 /** 应用工作区绑定持久化用的键（与 tabs 一致的前缀）。 */
@@ -727,6 +770,7 @@ interface SessionsLike {
 interface UiWorkspaceLike {
   openSession(target: string): void
   connectWorkspace(workspaceId: string): Promise<string>
+  startSession(workspaceId?: string): void
   listDirectory(path?: string): Promise<{ readonly home: string }>
   createDirectory(path: string, name: string): Promise<string>
 }

@@ -26,6 +26,11 @@
       field keys; "草稿已更新" rather than a version number. Mention a draft
       number only because the user needs it to refer to that draft.
 
+# 会话视图只留「对话」：Trajectory 是给开发者看执行轨迹的，业务用户不需要，
+# 多一个标签还挤占窄窗口下的标题空间。
+- id: ui-trajectory
+  disabled: true
+
 # ── 出口治理 ───────────────────────────────────────────────────────────────
 # 企业发行不得把完整会话日志作为请求字段发送给官方 API。
 - id: session-log-deepseek

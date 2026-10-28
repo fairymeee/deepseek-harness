@@ -247,25 +247,32 @@
 }
 
 /* 通知铃铛：从管理端顶栏移植到 agent 标签栏右侧。 */
-.assistantToggle {
+.assistantActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-bottom: 3px;
+  pointer-events: auto;
+}
+
+.assistantAction {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   width: 28px;
   height: 28px;
-  margin-left: auto;
-  margin-bottom: 3px;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
   cursor: pointer;
   pointer-events: auto;
 }
 
-.assistantToggle:hover {
+.assistantAction:hover {
   background: var(--dsw-alias-bg-tertiary, rgba(0, 0, 0, 0.08));
   color: var(--dsw-alias-label-primary);
 }
