@@ -13,6 +13,9 @@
  * 身份边界：用户令牌与任务号由宿主按会话注入环境变量，工具参数里没有任何
  * 身份字段。模型只能选动作和填业务参数。
  */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 /** 工具名。 */
@@ -52,9 +55,22 @@ function currentTaskId(exec) {
 /**
  * 读取用户令牌。
  *
+ * 优先读宿主目录里的凭据文件：访问令牌会过期，网关续期后会重写这个文件，
+ * 而进程启动时的环境变量不会变。只读环境变量的话，用户在 agent 里待够
+ * 半小时，所有业务工具就会开始 401。
+ *
  * @returns 令牌；未配置时返回空串
  */
 function userToken() {
+  const home = process.env.DSH_HOME
+  if (typeof home === 'string' && home !== '') {
+    try {
+      const token = readFileSync(join(home, 'solar-credential'), 'utf8').trim()
+      if (token !== '') return token
+    } catch {
+      // 文件不存在（例如未登录路径）：回落到环境变量。
+    }
+  }
   const token = process.env.SOLAR_USER_TOKEN
   return typeof token === 'string' ? token : ''
 }
