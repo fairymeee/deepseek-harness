@@ -124,10 +124,11 @@
   --solar-tab-bg: var(--dsw-alias-bg-layer-1);
   --solar-tab-strip: var(--dsw-alias-bg-base);
   position: absolute;
-  /* 贴住中栏顶部：左侧让出侧栏宽度，右侧让出右栏。 */
+  /* 贴住中栏顶部，宽度等于中栏：不能往右铺到右栏去，
+     否则这条覆盖层会盖住右栏自己的按钮（收起右栏、面板操作）。 */
   top: 0;
   left: var(--solar-center-left, 264px);
-  right: var(--solar-right-width, 0px);
+  width: var(--solar-center-width, 100%);
   z-index: 21;
   display: flex;
   align-items: flex-end;
@@ -136,6 +137,9 @@
   padding: 0 6px;
   padding-top: var(--dsh-frame-top-clearance, 0px);
   background: var(--solar-tab-strip);
+  /* 条本身不吃点击：空白处应落到下面真正的内容上。
+     只有标签与铃铛重新打开命中测试。 */
+  pointer-events: none;
 }
 
 
@@ -146,6 +150,7 @@
   height: 100%;
   overflow-x: auto;
   scrollbar-width: none;
+  pointer-events: auto;
 }
 
 
@@ -301,6 +306,7 @@
   margin-left: auto;
   flex-shrink: 0;
   padding-bottom: 3px;
+  pointer-events: auto;
 }
 
 .bell {

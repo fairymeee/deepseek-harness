@@ -52,16 +52,22 @@ export function apply(ctx: ClientContext): void {
 
   // 会话面板要让出标签栏、并在分栏时缩到右半边。这两条只能作用在官方
   // 会话容器上，用它的稳定 data 属性定位（不是哈希类名）。
+  //
+  // 分栏用 margin-left 而不是 padding-left：会话容器是横向 flex 的子项，
+  // 左边距会把它的可用宽度压窄；padding 则只是把内容往里推，容器自身
+  // 宽度不变，内部一旦有更宽的元素就产生横向溢出，浏览器还会把它横向
+  // 滚一段（实测滚了 170px，内容直接钻到应用层底下）。
   ctx.effect(() => {
     const style = document.createElement('style')
     style.dataset.solarShell = ''
     style.textContent = [
       ':root[data-solar-shell] div:has(> [data-conversation-content]) {',
       '  padding-top: var(--solar-tabbar-height, 40px);',
-      '  transition: padding-left 160ms ease;',
+      '  transition: margin-left 160ms ease;',
       '}',
       ':root[data-solar-shell][data-solar-split] div:has(> [data-conversation-content]) {',
-      '  padding-left: var(--solar-split-width, 60%);',
+      '  margin-left: var(--solar-split-width, 60%);',
+      '  min-width: 0;',
       '}',
     ].join('\n')
     document.head.append(style)
@@ -80,7 +86,10 @@ export function apply(ctx: ClientContext): void {
    */
   const syncGeometry = (): void => {
     const pane = document.querySelector('div:has(> [data-conversation-content])')
-    let element: HTMLElement | null = pane instanceof HTMLElement ? pane : null
+    // 从**父级**开始量。会话容器自己会被分栏的左边距推走，量它等于量一个
+    // 被自己影响过的值：左边距改宽度、宽度又改左边距，会形成反馈环，
+    // 实测能把整个中栏一路推到窗口右边去。
+    let element: HTMLElement | null = pane instanceof HTMLElement ? pane.parentElement : null
     if (element === null) return
     let box = element.getBoundingClientRect()
     // 往上找到第一个真正占位的祖先：中间的插槽包装层是 display: contents，
@@ -90,21 +99,64 @@ export function apply(ctx: ClientContext): void {
       box = element.getBoundingClientRect()
     }
     if (box.width === 0) return
+    const center = Math.round(box.width)
     const root = document.documentElement
     root.style.setProperty('--solar-center-left', `${Math.round(box.left)}px`)
-    root.style.setProperty('--solar-center-width', `${Math.round(box.width)}px`)
-    root.style.setProperty('--solar-split-width', `${Math.round(box.width * 0.6)}px`)
+    root.style.setProperty('--solar-center-width', `${center}px`)
+    root.style.setProperty('--solar-split-width', `${splitWidthFor(center)}px`)
+    // 会话区的宽度变化（打开右栏、折叠侧栏）不会改变 body 尺寸，
+    // 必须直接盯住会话元素，否则变量会一直停在上一次的值上，
+    // 表现为打开右栏后对话被挤成一条竖线。
+    if (resizeObserver !== null && observed !== element) {
+      if (observed !== null) resizeObserver.unobserve(observed)
+      resizeObserver.observe(element)
+      observed = element
+      // 已经盯住真正会变尺寸的元素，DOM 兜底可以撤了。
+      pendingObserver?.disconnect()
+      pendingObserver = null
+    }
+  }
+
+  let resizeObserver: ResizeObserver | null = null
+  let observed: Element | null = null
+  /** 会话面板出现之前，靠它一直重试量尺寸。 */
+  let pendingObserver: MutationObserver | null = null
+  let pendingFrame = 0
+
+  /** 合并短时间内的多次触发：DOM 兜底阶段每次变更都会调到这里。 */
+  const scheduleSync = (): void => {
+    if (pendingFrame !== 0) return
+    // 用 setTimeout 而不是 requestAnimationFrame：在没有合成帧的环境里
+    // （内置浏览器窗口不活跃、被遮挡）rAF 回调可能永远不执行，
+    // 兜底同步就一次也跑不到。
+    pendingFrame = window.setTimeout(() => {
+      pendingFrame = 0
+      syncGeometry()
+    }, 0)
   }
 
   ctx.effect(() => {
+    resizeObserver = new ResizeObserver(() => { syncGeometry() })
+    window.addEventListener('resize', syncGeometry)
+    // 插件初始化时会话面板可能还没挂载（正在恢复会话），一次量不到就
+    // 永远量不到：没有元素可观察，也就没有下一次触发。这里先盯着 DOM
+    // 变化重试，拿到面板后换成 ResizeObserver。
+    //
+    // 盯 documentElement 而不是 body：插件可能在 body 挂载前就初始化，
+    // observe(null) 会抛错，把后面的首次同步一起带没（表现为只有窗口
+    // 尺寸变化时才写 CSS 变量）。
+    pendingObserver = new MutationObserver(scheduleSync)
+    pendingObserver.observe(document.documentElement, { childList: true, subtree: true })
     syncGeometry()
-    const onResize = (): void => { syncGeometry() }
-    window.addEventListener('resize', onResize)
-    const observer = new ResizeObserver(onResize)
-    observer.observe(document.body)
     return () => {
-      window.removeEventListener('resize', onResize)
-      observer.disconnect()
+      window.removeEventListener('resize', syncGeometry)
+      if (pendingFrame !== 0) window.clearTimeout(pendingFrame)
+      pendingFrame = 0
+      pendingObserver?.disconnect()
+      pendingObserver = null
+      resizeObserver?.disconnect()
+      resizeObserver = null
+      observed = null
     }
   }, 'solar-apps: geometry')
   const t = ctx.locale.bind(NS)
@@ -121,12 +173,34 @@ export function apply(ctx: ClientContext): void {
    * 看业务页面一边和助手说话。main 始终是会话，所以 selectPanel(null)。
    */
   let split = false
+  /**
+   * 侧栏是不是被这次分栏收起的。
+   *
+   * 只还原自己收起的那次：用户本来就把侧栏收着，回到工作台时不该替他展开。
+   */
+  let sidebarHiddenBySplit = false
+
+  /** 侧栏当前是否收起（官方 frame 上的稳定标记）。 */
+  const sidebarCollapsed = (): boolean =>
+    document.querySelector('[data-sidebar-collapsed]') !== null
+
   const setSplit = (on: boolean): void => {
     if (split === on) return
     split = on
     const root = document.documentElement
     if (on) root.dataset.solarSplit = ''
     else delete root.dataset.solarSplit
+    // 看应用时收起左侧那列应用列表：它占 264px，不收的话应用和助手都被挤扁。
+    // 跨应用切换由标签栏承担，侧栏不是唯一入口。
+    if (on) {
+      if (!sidebarCollapsed()) {
+        ctx.layout.toggleSidebar()
+        sidebarHiddenBySplit = true
+      }
+    } else if (sidebarHiddenBySplit) {
+      if (sidebarCollapsed()) ctx.layout.toggleSidebar()
+      sidebarHiddenBySplit = false
+    }
     syncGeometry()
   }
 
@@ -368,4 +442,24 @@ export function apply(ctx: ClientContext): void {
       panelDisposers.clear()
     }
   }, 'solar-apps: registration teardown')
+}
+
+/** 助手栏（会话）至少要留出的宽度。DSH 的会话面板低于这个宽度会退化：
+ *  标题栏丢标题、输入框工具栏换行溢出。 */
+const MIN_ASSISTANT_WIDTH = 640
+/** 应用窗格的目标最小宽度。 */
+const MIN_APP_WIDTH = 480
+
+/**
+ * 算出应用窗格该占多宽。
+ *
+ * 侧栏在分栏时会收起，中栏通常就是整个窗口宽度。两边都不够时不要硬分：
+ * 应用占满中栏，会话通过「Workbench」标签切回——比并排两个都看不清可用。
+ * @param center 中栏宽度
+ * @returns 应用窗格宽度
+ */
+function splitWidthFor(center: number): number {
+  const available = center - MIN_ASSISTANT_WIDTH
+  if (available < MIN_APP_WIDTH) return Math.round(center)
+  return Math.round(Math.min(Math.max(center * 0.55, MIN_APP_WIDTH), available))
 }
