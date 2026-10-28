@@ -9,12 +9,12 @@
  * 为什么 iframe 不放在 main 面板里：切回工作台会卸载该面板，iframe 跟着
  * 销毁，用户填到一半的表单就丢了。
  */
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SolarApp, SolarAppsStore } from './apps.ts'
+import type { SolarApp, SolarAppsStore, SolarMenuStore, AppMenuNode } from './apps.ts'
 import type { SolarWorkspaceKey } from './locales.ts'
-import { appUrl } from './apps.ts'
+import { appMenuTree, appUrl, firstPagePath, menuChain } from './apps.ts'
 import type { AppTab, AppTabsStore } from './tabs.ts'
 import { WORKBENCH_TAB_ID } from './tabs.ts'
 import {
@@ -29,6 +29,8 @@ export const WORKSPACE_PANEL = 'solar-workspace'
 export interface SolarWorkspaceInjected {
   /** 应用目录 store（已按权限过滤）；组件内部订阅，不用快照。 */
   readonly apps: SolarAppsStore
+  /** 菜单树 store：应用内页面导航。 */
+  readonly menus: SolarMenuStore
   /** 标签 store。 */
   readonly tabs: AppTabsStore
   /** 切到工作台（对话界面）。 */
@@ -48,13 +50,6 @@ export interface WorkspaceTabBarProps {
   readonly openApp: (app: SolarApp) => void
   readonly closeTab: (tab: AppTab) => void
   readonly t: (key: SolarWorkspaceKey) => string
-  /**
-   * 渲染位置。
-   *
-   * `inline`：并进会话头最左侧，会话可见时用——和会话标题同一行，不重叠。
-   * `overlay`：浮在内容区顶部，应用标签激活时用（此时会话头不在）。
-   */
-  readonly variant?: 'overlay' | 'inline'
 }
 
 /** 完整 props。 */
@@ -64,51 +59,34 @@ export type SolarWorkspaceProps =
   & InjectFace<SolarWorkspaceInjected>
 
 /**
- * 工作区面板占位。
+ * main 面板的空占位。
  *
- * iframe 实际渲染在 shell.overlay 的常驻层里（见 SolarFrames）。这里只留
- * 一个透明占位：面板存在才能让 layout 保持"选中了某个应用"的状态，但不
- * 能带背景——否则会盖住 overlay 层，整个内容区变暗。
- * @param props 运行时、注入面与文案
+ * 应用不再渲染在 main 里：它显示在 overlay 的左半边，会话留在右半边。
+ * 面板仍然要注册，否则官方侧栏的 `selectPanel(id)` 会抛错。
  */
-export function SolarWorkspace({ apps, tabs, t }: SolarWorkspaceProps) {
-  const state = useSyncExternalStore(tabs.subscribe, tabs.getSnapshot, tabs.getSnapshot)
-  const appState = useSyncExternalStore(apps.subscribe, apps.getSnapshot, apps.getSnapshot)
-  const openedCount = state.tabs.filter(tab => tab.appId !== undefined).length
-
-  if (openedCount > 0) {
-    return <div className={css.placeholder} data-solar-workspace="" />
-  }
-
-  // 一个应用都没打开：给一句提示，避免空白。
-  return (
-    <div className={css.page} data-solar-workspace="">
-      <div className={css.frames}>
-        <div className={css.empty}>
-          {appState.error !== undefined ? appState.error : t('emptyHint')}
-        </div>
-      </div>
-    </div>
-  )
+export function SolarPlaceholder(): null {
+  return null
 }
 
 /**
- * 应用 iframe 容器（常驻）。
+ * 应用面板（左侧）与页面导航。
  *
- * 挂在 `shell.overlay` 而不是工作区面板里：面板在切回工作台时会被卸载，
- * 挂在里面的 iframe 跟着销毁。overlay 是 shell 级的，切到对话页也还在。
+ * 会话常驻在右侧：切到应用时不是替换对话，而是把对话让到右半边、应用占
+ * 左半边——用户可以一边看业务页面一边和助手说话，和 DeepClaw 一致。
  *
- * 停在工作台时用 `display: none` 隐藏而不是返回 null——返回 null 同样会
- * 卸载整棵子树。
- * @param props 应用目录与标签
+ * 应用内的页面导航由这里接管（管理端自己的侧栏在嵌入模式下隐藏），
+ * 只保留内容区。
+ * @param props 应用目录、菜单、标签
  */
-export function SolarFrames({ apps, tabs }: SolarWorkspaceInjected) {
+export function SolarFrames({ apps, menus, tabs }: SolarWorkspaceInjected) {
   const state = useSyncExternalStore(tabs.subscribe, tabs.getSnapshot, tabs.getSnapshot)
   const appState = useSyncExternalStore(apps.subscribe, apps.getSnapshot, apps.getSnapshot)
+  const menuState = useSyncExternalStore(menus.subscribe, menus.getSnapshot, menus.getSnapshot)
   const appById = useMemo(
     () => new Map(appState.apps.map(app => [app.id, app])),
     [appState.apps],
   )
+  const frames = useRef(new Map<string, HTMLIFrameElement>())
 
   const openedTabs = state.tabs.flatMap((tab) => {
     if (tab.appId === undefined) return []
@@ -117,9 +95,39 @@ export function SolarFrames({ apps, tabs }: SolarWorkspaceInjected) {
   })
   const activeTab = state.tabs.find(tab => tab.id === state.activeId)
   const activeAppId = activeTab?.appId
+  const activeApp = activeAppId === undefined ? undefined : appById.get(activeAppId)
+  const tree = useMemo(
+    () => activeApp === undefined ? [] : appMenuTree(menuState, activeApp.path),
+    [activeApp, menuState],
+  )
+  // 当前路由在菜单树里的祖先链：每一层决定下一行显示哪些同级菜单。
+  const chain = useMemo(
+    () => menuChain(tree, activeTab?.route ?? ''),
+    [tree, activeTab?.route],
+  )
 
   if (openedTabs.length === 0) {
     return null
+  }
+
+  /** 切换应用内页面：直接改 iframe 的 hash，由管理端路由接管。 */
+  const navigate = (path: string): void => {
+    if (activeAppId === undefined) return
+    const frame = frames.current.get(activeAppId)
+    if (frame?.contentWindow == null) return
+    frame.contentWindow.location.hash = `#${path}`
+  }
+
+  // 一行一级菜单，逐层展开当前路径上的子菜单。
+  // 只有第一行常驻；第二、三行只在当前页面属于某个分组时出现，
+  // 这样大多数时候只有一行，不会把内容区挤掉。
+  const rows: { nodes: readonly AppMenuNode[]; activePath?: string }[] = []
+  const first = chain[0]
+  if (tree.length > 0) rows.push({ nodes: tree, ...(first === undefined ? {} : { activePath: first.path }) })
+  for (const [level, node] of chain.entries()) {
+    if (node.children.length === 0) break
+    const active = chain[level + 1]
+    rows.push({ nodes: node.children, ...(active === undefined ? {} : { activePath: active.path }) })
   }
 
   return (
@@ -128,6 +136,32 @@ export function SolarFrames({ apps, tabs }: SolarWorkspaceInjected) {
       data-solar-frames=""
       style={activeAppId === undefined ? { display: 'none' } : undefined}
     >
+      {activeApp !== undefined && rows.length > 0 && (
+        <nav className={css.pageStrip} aria-label={activeApp.name}>
+          {rows.map((row, level) => (
+            <div className={css.pageRow} key={level}>
+              {row.nodes.map((node) => {
+                const active = row.activePath === node.path
+                return (
+                  <button
+                    key={node.path}
+                    type="button"
+                    className={active ? css.pageChipActive : css.pageChip}
+                    title={node.name}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => {
+                      const target = firstPagePath(node)
+                      if (target !== '') navigate(target)
+                    }}
+                  >
+                    {node.name}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </nav>
+      )}
       <div className={css.frames}>
         {openedTabs.map(({ tab, app }) => (
           <SolarFrame
@@ -135,6 +169,10 @@ export function SolarFrames({ apps, tabs }: SolarWorkspaceInjected) {
             app={app}
             visible={app.id === activeAppId}
             {...(tab.route === undefined ? {} : { initialRoute: tab.route })}
+            onMount={(element) => {
+              if (element === null) frames.current.delete(app.id)
+              else frames.current.set(app.id, element)
+            }}
             onRoute={(route) => {
               // 只记录落在该应用边界内的路由。越界时管理端会把用户弹回
               // 应用首页，而那次 hash 变化仍会被监听到；把它记进标签会让
@@ -158,16 +196,18 @@ export function SolarFrames({ apps, tabs }: SolarWorkspaceInjected) {
  * 外层只通过 `onRoute` 记录。
  */
 function SolarFrame({
-  app, visible, initialRoute, onRoute,
+  app, visible, initialRoute, onRoute, onMount,
 }: {
   readonly app: SolarApp
   readonly visible: boolean
   readonly initialRoute?: string
   readonly onRoute: (route: string) => void
+  readonly onMount: (element: HTMLIFrameElement | null) => void
 }) {
   const [src] = useState(() => appUrl(app, initialRoute))
   return (
     <iframe
+      ref={onMount}
       className={css.frame}
       style={visible ? undefined : { visibility: 'hidden', position: 'absolute', inset: 0 }}
       title={app.name}
@@ -198,6 +238,10 @@ function watchRoute(frame: HTMLIFrameElement, onRoute: (route: string) => void):
     const win = frame.contentWindow
     if (win === null) return
     const read = (): string => win.location.hash.replace(/^#/, '')
+    const report = (): void => {
+      const next = read()
+      if (next !== '') onRoute(next)
+    }
     const initial = read()
     if (initial !== '') onRoute(initial)
     // onLoad 可能因站内跳转再次触发，重复绑定会让回调累积。
@@ -205,10 +249,22 @@ function watchRoute(frame: HTMLIFrameElement, onRoute: (route: string) => void):
     const tagged = win as unknown as Record<string, boolean>
     if (tagged[marker] === true) return
     tagged[marker] = true
-    win.addEventListener('hashchange', () => {
-      const next = read()
-      if (next !== '') onRoute(next)
-    })
+    win.addEventListener('hashchange', report)
+    win.addEventListener('popstate', report)
+    // vue-router 改地址走 history.pushState/replaceState，浏览器不会为它们
+    // 派发 hashchange。应用内点菜单、路由守卫的越界重定向都是这条路，
+    // 不接管的话外层记录的页面会一直停在最后一次手点的位置。
+    const history = win.history as unknown as Record<string, ((...args: unknown[]) => unknown) | undefined>
+    for (const method of ['pushState', 'replaceState'] as const) {
+      const original = history[method]
+      if (original === undefined) continue
+      const bound = original.bind(win.history)
+      history[method] = (...args: unknown[]): unknown => {
+        const result = bound(...args)
+        report()
+        return result
+      }
+    }
   } catch {
     // 跨源或尚未就绪：忽略，路由不会被记录。
   }
@@ -222,7 +278,7 @@ function watchRoute(frame: HTMLIFrameElement, onRoute: (route: string) => void):
  * @param props 标签 store、应用目录与回调
  */
 export function WorkspaceTabBar({
-  tabs, apps, openWorkbench, openApp, closeTab, t, variant = 'overlay',
+  tabs, apps, openWorkbench, openApp, closeTab, t,
 }: WorkspaceTabBarProps) {
   const state = useSyncExternalStore(tabs.subscribe, tabs.getSnapshot, tabs.getSnapshot)
   const appState = useSyncExternalStore(apps.subscribe, apps.getSnapshot, apps.getSnapshot)
@@ -237,17 +293,8 @@ export function WorkspaceTabBar({
     if (next !== undefined) openApp(next)
   }
 
-  // 会话可见时不画 overlay：标签此时并进会话头（inline），再画一条会压在
-  // 会话标题上，两段文字叠在一起。
-  const activeTab = state.tabs.find(tab => tab.id === state.activeId)
-  if (variant === 'overlay' && activeTab?.appId === undefined) return null
-
   return (
-    <div
-      className={variant === 'inline' ? css.tabBarInline : css.tabBarOverlay}
-      role="tablist"
-      aria-label={t('tabsLabel')}
-    >
+    <div className={css.tabBarOverlay} role="tablist" aria-label={t('tabsLabel')}>
       <div className={css.tabs}>
         {state.tabs.map((tab) => {
           const active = tab.id === state.activeId
@@ -309,7 +356,7 @@ export function WorkspaceTabBar({
           +
         </button>
       </div>
-      {variant === 'overlay' && <NotificationBell t={t} />}
+      <NotificationBell t={t} />
     </div>
   )
 }

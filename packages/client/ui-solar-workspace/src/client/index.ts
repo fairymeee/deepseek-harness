@@ -16,10 +16,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { SolarAppsStore, type SolarApp } from './apps.ts'
+import { SolarAppsStore, SolarMenuStore, type SolarApp } from './apps.ts'
 import { AppTabsStore, WORKBENCH_TAB_ID, type AppTab } from './tabs.ts'
 import {
-  SolarFrames, SolarWorkspace, WorkspaceTabBar,
+  SolarFrames, SolarPlaceholder, WorkspaceTabBar,
   type SolarWorkspaceInjected, type WorkspaceTabBarProps,
 } from './SolarWorkspacePage.tsx'
 import { SolarAppIcon } from './SolarAppIcon.tsx'
@@ -49,31 +49,101 @@ export function apply(ctx: ClientContext): void {
     root.style.setProperty('--solar-tabbar-height', '40px')
     return () => { root.style.removeProperty('--solar-tabbar-height') }
   }, 'solar-apps: tabbar height token')
+
+  // 会话面板要让出标签栏、并在分栏时缩到右半边。这两条只能作用在官方
+  // 会话容器上，用它的稳定 data 属性定位（不是哈希类名）。
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.dataset.solarShell = ''
+    style.textContent = [
+      ':root[data-solar-shell] div:has(> [data-conversation-content]) {',
+      '  padding-top: var(--solar-tabbar-height, 40px);',
+      '  transition: padding-left 160ms ease;',
+      '}',
+      ':root[data-solar-shell][data-solar-split] div:has(> [data-conversation-content]) {',
+      '  padding-left: var(--solar-split-width, 60%);',
+      '}',
+    ].join('\n')
+    document.head.append(style)
+    document.documentElement.dataset.solarShell = ''
+    return () => {
+      style.remove()
+      delete document.documentElement.dataset.solarShell
+    }
+  }, 'solar-apps: shell layout')
+
+  /**
+   * 量出中栏的位置与宽度。
+   *
+   * 侧栏折叠、右栏展开都会改变它，所以由这里统一写入 CSS 变量，
+   * 供标签栏、应用层、会话缩进共用，避免各自硬编码 264px。
+   */
+  const syncGeometry = (): void => {
+    const pane = document.querySelector('div:has(> [data-conversation-content])')
+    let element: HTMLElement | null = pane instanceof HTMLElement ? pane : null
+    if (element === null) return
+    let box = element.getBoundingClientRect()
+    // 往上找到第一个真正占位的祖先：中间的插槽包装层是 display: contents，
+    // 自身没有盒子。
+    while (box.width === 0 && element.parentElement !== null) {
+      element = element.parentElement
+      box = element.getBoundingClientRect()
+    }
+    if (box.width === 0) return
+    const root = document.documentElement
+    root.style.setProperty('--solar-center-left', `${Math.round(box.left)}px`)
+    root.style.setProperty('--solar-center-width', `${Math.round(box.width)}px`)
+    root.style.setProperty('--solar-split-width', `${Math.round(box.width * 0.6)}px`)
+  }
+
+  ctx.effect(() => {
+    syncGeometry()
+    const onResize = (): void => { syncGeometry() }
+    window.addEventListener('resize', onResize)
+    const observer = new ResizeObserver(onResize)
+    observer.observe(document.body)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      observer.disconnect()
+    }
+  }, 'solar-apps: geometry')
   const t = ctx.locale.bind(NS)
   const apps = new SolarAppsStore()
+  const menus = new SolarMenuStore()
   const tabs = new AppTabsStore()
-  /** 已注册的 main 面板，用于判断某个应用面板是否可用。 */
+  /** 已注册的 main 面板：只为了让侧栏点击能派发，渲染为空。 */
   const panelDisposers = new Map<string, () => void>()
 
-  /** 打开工作台：切到对话界面，标签栏保留已打开的应用。 */
+  /**
+   * 是否处于"应用 + 助手"并排。
+   *
+   * 应用不再是 main 面板：会话常驻在右侧，应用占左半边。这样用户能一边
+   * 看业务页面一边和助手说话。main 始终是会话，所以 selectPanel(null)。
+   */
+  let split = false
+  const setSplit = (on: boolean): void => {
+    if (split === on) return
+    split = on
+    const root = document.documentElement
+    if (on) root.dataset.solarSplit = ''
+    else delete root.dataset.solarSplit
+    syncGeometry()
+  }
+
+  /** 打开工作台：收起应用面板，会话占满。 */
   const openWorkbench = (): void => {
     tabs.activate(WORKBENCH_TAB_ID)
     ctx.layout.selectPanel(null)
+    setSplit(false)
   }
 
-  /** 打开一个应用：新增标签并切到该应用的面板。 */
+  /** 打开一个应用：新增标签并并排显示。 */
   const openApp = (app: SolarApp): void => {
     const panelId = `solar-app-${app.id}`
-    // 先发布标签状态：即便下面的面板切换失败，标签栏也应反映用户的点击。
     tabs.open({ id: panelId, label: app.name, pinned: false, appId: app.id })
-    // 面板可能尚未注册（应用目录刚刷新、侧栏还没同步到），此时
-    // selectPanel 会抛错。标签已经打开，用户再点一次就能进入，
-    // 所以这里只记录，不让异常打断事件处理。
-    if (!panelDisposers.has(panelId)) {
-      console.error(`[solar] panel ${panelId} not registered yet`)
-      return
-    }
-    ctx.layout.selectPanel(panelId as never)
+    // 会话必须留在 main 里，否则右半边没东西可看。
+    ctx.layout.selectPanel(null)
+    setSplit(true)
   }
 
   /** 关闭标签；关掉当前标签时切到相邻标签。 */
@@ -94,12 +164,11 @@ export function apply(ctx: ClientContext): void {
     }
   }
 
-  // 每个应用注册一个 main 面板，都渲染同一个工作区组件。
+  // 每个应用仍注册一个 main 面板，但只渲染空占位。
   //
-  // 为什么不是"一个面板 + 自己改选中态"：官方侧栏点击走
-  // `selectPanel(id)`，id 必须能在 main 注册表里找到，否则整次切换失败。
-  // 让面板 id 与侧栏入口 id 一一对应，点击才能生效；组件内部
-  // 再按 id 决定显示哪个应用。
+  // 官方侧栏的每一行都会 `selectPanel(id)`，id 不在 main 注册表里就抛错，
+  // 所以面板必须存在。真正的显示交给 overlay 的分栏：选中面板后立刻回到
+  // 会话（见 syncFromPanel），应用以左半边的形式出现。
   const registerPanel = (appId: string): void => {
     const panelId = `solar-app-${appId}`
     if (panelDisposers.has(panelId)) return
@@ -107,16 +176,7 @@ export function apply(ctx: ClientContext): void {
       name: 'main',
       key: panelId,
       locale: NS,
-      // 传 store 而不是 apps 快照：inject 只在注册时求值一次，而注册发生在
-      // 应用目录拉取完成之前，快照会永久停在空数组上。组件内部订阅 store。
-      inject: (): SolarWorkspaceInjected => ({
-        apps,
-        tabs,
-        openWorkbench,
-        openApp,
-        closeTab,
-      }),
-    }, SolarWorkspace))
+    }, SolarPlaceholder))
   }
 
   // 常驻标签栏：挂在 shell.overlay 上，切到对话界面也可见。
@@ -134,23 +194,6 @@ export function apply(ctx: ClientContext): void {
     }),
   }, WorkspaceTabBar))
 
-  // 会话可见时，标签并进会话头最左侧：那里与会话标题同一行，
-  // 不会像 overlay 那样压在标题上。会话头只在对话界面存在，
-  // 所以应用标签激活时由上面的 overlay 版接管。
-  ctx.slots.inject('conversation.header.leading', () => ctx.slots.register({
-    name: 'conversation.header.leading',
-    locale: NS,
-    inject: (): WorkspaceTabBarProps => ({
-      tabs,
-      apps,
-      openWorkbench,
-      openApp,
-      closeTab,
-      t,
-      variant: 'inline',
-    }),
-  }, WorkspaceTabBar))
-
   // iframe 常驻层：同样挂 overlay，避免切回工作台时被卸载。
   ctx.slots.inject('shell.overlay', () => ctx.slots.register({
     name: 'shell.overlay',
@@ -158,6 +201,7 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     inject: (): SolarWorkspaceInjected => ({
       apps,
+      menus,
       tabs,
       openWorkbench,
       openApp,
@@ -195,6 +239,7 @@ export function apply(ctx: ClientContext): void {
   }
 
   apps.subscribe(syncSidebar)
+  void menus.refresh()
   void apps.refresh().then(() => {
     syncSidebar()
     restoreFromUrl()
@@ -286,20 +331,29 @@ export function apply(ctx: ClientContext): void {
       tabs.activate(WORKBENCH_TAB_ID)
       return
     }
-    const panelId = `solar-app-${appId}`
-    if (panelDisposers.has(panelId)) ctx.layout.selectPanel(panelId as never)
+    // 应用不再渲染在 main 里：恢复时直接进入分栏，会话留在右半边。
+    setSplit(true)
+    ctx.layout.selectPanel(null)
   }
 
   // 侧栏点击走官方 selectPanel(id)。面板 id 与应用一一对应，
   // 这里只负责把标签激活到同一个应用，不再二次切换面板。
+  let redirecting = false
   const syncFromPanel = (): void => {
     const active = ctx.layout.panelInfo.getSnapshot().activePanelId
     if (active === null || !active.startsWith('solar-app-')) return
+    if (redirecting) return
     const appId = active.slice('solar-app-'.length)
     const app = apps.getSnapshot().apps.find(item => item.id === appId)
     if (app === undefined) return
-    // 只打开标签，不调用 selectPanel（避免和用户点击互相覆盖）。
-    tabs.open({ id: active, label: app.name, pinned: false, appId: app.id })
+    // 侧栏点击最终选中了这个面板。应用不渲染在 main 里，所以立刻回到
+    // 会话（main 保持对话），并让应用以左半边出现。
+    redirecting = true
+    try {
+      openApp(app)
+    } finally {
+      redirecting = false
+    }
   }
   ctx.effect(() => {
     const unsubscribe = ctx.layout.panelInfo.subscribe(syncFromPanel)

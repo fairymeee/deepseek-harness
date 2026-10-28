@@ -20,6 +20,60 @@
 }
 
 /* 内容区：iframe 堆叠，未激活的隐藏但保持挂载。 */
+/* 应用内页面导航：接管管理端自己的侧栏，只保留内容区。 */
+.pageStrip {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  background: var(--dsw-alias-bg-base);
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+/* 一行一级菜单。第二、三行只在当前页面属于某个分组时出现，
+   所以大多数时候只有一行，不会把内容区挤掉。 */
+.pageRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  /* 应用窗格只有 600px 左右，一级菜单放不下时换行而不是横向滚动：
+     横向滚动没有可见的滚动条，用户会以为后面的菜单不存在。 */
+  min-height: 34px;
+  padding: 5px 8px;
+}
+
+.pageRow + .pageRow {
+  border-top: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 55%, transparent);
+}
+
+.pageChip,
+.pageChipActive {
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: default;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.pageChip:hover {
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 70%, transparent);
+  color: var(--dsw-alias-label-primary);
+}
+
+.pageChipActive {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+
 .frames {
   position: relative;
   flex: 1;
@@ -33,13 +87,15 @@
   position: absolute;
   top: var(--solar-tabbar-height, 40px);
   left: var(--solar-center-left, 264px);
-  right: var(--solar-right-width, 0px);
+  /* 只占左半边：右半边留给常驻的会话。 */
+  width: var(--solar-split-width, 60%);
   bottom: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--dsw-alias-bg-primary);
+  border-right: 1px solid var(--dsw-alias-border-l2);
 }
 
 .frame {
@@ -82,36 +138,6 @@
   background: var(--solar-tab-strip);
 }
 
-/* 内联版：并进会话头最左侧，与会话标题同一行。
-   会话头本身已是内容色，激活项改用更深一层的底色区分。 */
-.tabBarInline {
-  --solar-tab-bg: var(--dsw-alias-bg-layer-2);
-  --solar-tab-strip: transparent;
-  display: flex;
-  align-items: center;
-  /* 由内容撑开（标签容器在内联模式下不滚动，见下），超过上限就裁剪：
-     会话头空间紧张时先压标题，不把标签压成两三个字。 */
-  flex: 0 0 auto;
-  /* 父级是零宽插槽容器，百分比没意义；用视口上限兜底，标签多时先压标题。 */
-  max-width: 46vw;
-  overflow: hidden;
-  margin-right: 8px;
-  padding-right: 8px;
-  border-right: 1px solid var(--dsw-alias-border-l2);
-}
-
-.tabBarInline .tab,
-.tabBarInline .tabActive {
-  height: 26px;
-  border-radius: 6px;
-  padding: 0 8px;
-}
-
-.tabBarInline .newTab {
-  width: 22px;
-  height: 22px;
-  margin: 0 0 0 2px;
-}
 
 .tabs {
   display: flex;
@@ -122,15 +148,6 @@
   scrollbar-width: none;
 }
 
-.tabBarInline .tabs {
-  align-items: center;
-  height: auto;
-  gap: 2px;
-  flex: 0 1 auto;
-  /* 关键：内联时不滚动。`overflow: auto` 会让容器的固有宽度变成 0，
-     父级据此排版就会把标签压成两三个字。 */
-  overflow: visible;
-}
 
 .tabs::-webkit-scrollbar {
   display: none;
@@ -160,14 +177,6 @@
   transition: background 100ms ease, color 100ms ease;
 }
 
-.tabBarInline .tab,
-.tabBarInline .tabActive {
-  /* 可收缩，但保底放得下三个字加关闭按钮。 */
-  flex: 0 1 auto;
-  min-width: 72px;
-  height: 26px;
-  max-width: 180px;
-}
 
 /* 相邻标签之间的细分割线：激活项与悬停项不画，紧邻激活项的那个也不画。 */
 .tab::before {
@@ -185,16 +194,6 @@
 .tab:hover::before,
 .tabActive + .tab::before {
   display: none;
-}
-
-.tabBarInline .tab::before {
-  display: none;
-}
-
-.tabBarInline .tab,
-.tabBarInline .tabActive {
-  border-radius: 6px;
-  padding: 0 8px;
 }
 
 .tab:hover {
@@ -232,10 +231,6 @@
   box-shadow: -3px -3px 0 0 var(--solar-tab-bg);
 }
 
-.tabBarInline .tabActive::before,
-.tabBarInline .tabActive::after {
-  display: none;
-}
 
 /* 标签标题：单行省略，和 Chrome 一样。 */
 .tabLabel {
@@ -275,11 +270,6 @@
   background: color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
 }
 
-.tabBarInline .tabClose {
-  width: 14px;
-  height: 14px;
-  font-size: 12px;
-}
 
 .newTab {
   display: flex;
