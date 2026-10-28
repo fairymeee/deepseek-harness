@@ -267,9 +267,13 @@ export function apply(ctx: ClientContext): void {
    * @param slug 单段目录名，例如 hrm
    * @returns 绝对路径；失败时 undefined
    */
-  const ensureAppDirectory = async (slug: string): Promise<string | undefined> => {
+  const ensureAppDirectory = async (
+    slug: string,
+    app: SolarApp,
+  ): Promise<string | undefined> => {
     try {
-      const response = await fetch(`/solar-api/app-workspace?slug=${encodeURIComponent(slug)}`, {
+      const query = new URLSearchParams({ slug, name: app.name, path: app.path })
+      const response = await fetch(`/solar-api/app-workspace?${query.toString()}`, {
         headers: { accept: 'application/json' },
         credentials: 'same-origin',
       })
@@ -301,14 +305,16 @@ export function apply(ctx: ClientContext): void {
   const ensureAppWorkspace = async (app: SolarApp): Promise<AppWorkspaceBinding | undefined> => {
     const workspaces = workspaceApi()
     if (workspaces === undefined) return undefined
-    const cached = bindings.get(app.id)
-    if (cached !== undefined) {
-      if (workspaceById(cached.workspaceId) !== undefined) return cached
-      // 工作区被用户删掉了；绑定失效，重新解析。
-      bindings.delete(app.id)
-    }
-    const directory = await ensureAppDirectory(appDirectoryName(app.path, app.id))
+    // 每次都重走一遍目录准备：它同时刷新工作区里的 AGENTS.md（应用上下文包）。
+    // 权限变了、场景改了，下一次打开应用就生效，不需要用户清缓存或重建会话。
+    const directory = await ensureAppDirectory(appDirectoryName(app.path, app.id), app)
     if (directory === undefined) return undefined
+    const cached = bindings.get(app.id)
+    if (cached !== undefined
+      && cached.path === directory
+      && workspaceById(cached.workspaceId) !== undefined) return cached
+    // 工作区被用户删了，或落脚目录换了：绑定失效，重新解析。
+    if (cached !== undefined) bindings.delete(app.id)
     const created = await workspaces.create({ path: directory })
     if (created.title !== app.name) {
       // 标题默认取目录名（hrm）。改成应用名，侧栏分组才读得懂；
@@ -561,9 +567,15 @@ export function apply(ctx: ClientContext): void {
       tabs.activate(WORKBENCH_TAB_ID)
       return
     }
-    // 应用不再渲染在 main 里：恢复时直接进入分栏，会话留在右半边。
-    setSplit(true)
-    ctx.layout.selectPanel(null)
+    // 恢复时走完整的打开流程：除了进入分栏，还要确保工作区目录与
+    // 应用上下文包（AGENTS.md）就位，并把助手切到该应用最近的会话。
+    const app = apps.getSnapshot().apps.find(item => item.id === appId)
+    if (app === undefined) {
+      setSplit(true)
+      ctx.layout.selectPanel(null)
+      return
+    }
+    openApp(app)
   }
 
   // 侧栏点击走官方 selectPanel(id)。面板 id 与应用一一对应，
