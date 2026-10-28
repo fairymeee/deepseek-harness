@@ -12,9 +12,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SolarApp, SolarAppsStore, SolarMenuStore, AppMenuNode } from './apps.ts'
+import type { SolarApp, SolarAppsStore } from './apps.ts'
 import type { SolarWorkspaceKey } from './locales.ts'
-import { appMenuTree, appUrl, firstPagePath, menuChain } from './apps.ts'
+import { appUrl } from './apps.ts'
+import type { AssistantToggleStore } from './assistant.ts'
 import type { AppTab, AppTabsStore } from './tabs.ts'
 import { WORKBENCH_TAB_ID } from './tabs.ts'
 import {
@@ -29,8 +30,6 @@ export const WORKSPACE_PANEL = 'solar-workspace'
 export interface SolarWorkspaceInjected {
   /** 应用目录 store（已按权限过滤）；组件内部订阅，不用快照。 */
   readonly apps: SolarAppsStore
-  /** 菜单树 store：应用内页面导航。 */
-  readonly menus: SolarMenuStore
   /** 标签 store。 */
   readonly tabs: AppTabsStore
   /** 切到工作台（对话界面）。 */
@@ -49,6 +48,10 @@ export interface WorkspaceTabBarProps {
   readonly openWorkbench: () => void
   readonly openApp: (app: SolarApp) => void
   readonly closeTab: (tab: AppTab) => void
+  /** 助手面板开关（可订阅，按钮要跟着状态变）。 */
+  readonly assistant: AssistantToggleStore
+  /** 收起/展开助手面板。 */
+  readonly toggleAssistant: () => void
   readonly t: (key: SolarWorkspaceKey) => string
 }
 
@@ -78,10 +81,9 @@ export function SolarPlaceholder(): null {
  * 只保留内容区。
  * @param props 应用目录、菜单、标签
  */
-export function SolarFrames({ apps, menus, tabs }: SolarWorkspaceInjected) {
+export function SolarFrames({ apps, tabs }: SolarWorkspaceInjected) {
   const state = useSyncExternalStore(tabs.subscribe, tabs.getSnapshot, tabs.getSnapshot)
   const appState = useSyncExternalStore(apps.subscribe, apps.getSnapshot, apps.getSnapshot)
-  const menuState = useSyncExternalStore(menus.subscribe, menus.getSnapshot, menus.getSnapshot)
   const appById = useMemo(
     () => new Map(appState.apps.map(app => [app.id, app])),
     [appState.apps],
@@ -95,39 +97,8 @@ export function SolarFrames({ apps, menus, tabs }: SolarWorkspaceInjected) {
   })
   const activeTab = state.tabs.find(tab => tab.id === state.activeId)
   const activeAppId = activeTab?.appId
-  const activeApp = activeAppId === undefined ? undefined : appById.get(activeAppId)
-  const tree = useMemo(
-    () => activeApp === undefined ? [] : appMenuTree(menuState, activeApp.path),
-    [activeApp, menuState],
-  )
-  // 当前路由在菜单树里的祖先链：每一层决定下一行显示哪些同级菜单。
-  const chain = useMemo(
-    () => menuChain(tree, activeTab?.route ?? ''),
-    [tree, activeTab?.route],
-  )
-
   if (openedTabs.length === 0) {
     return null
-  }
-
-  /** 切换应用内页面：直接改 iframe 的 hash，由管理端路由接管。 */
-  const navigate = (path: string): void => {
-    if (activeAppId === undefined) return
-    const frame = frames.current.get(activeAppId)
-    if (frame?.contentWindow == null) return
-    frame.contentWindow.location.hash = `#${path}`
-  }
-
-  // 一行一级菜单，逐层展开当前路径上的子菜单。
-  // 只有第一行常驻；第二、三行只在当前页面属于某个分组时出现，
-  // 这样大多数时候只有一行，不会把内容区挤掉。
-  const rows: { nodes: readonly AppMenuNode[]; activePath?: string }[] = []
-  const first = chain[0]
-  if (tree.length > 0) rows.push({ nodes: tree, ...(first === undefined ? {} : { activePath: first.path }) })
-  for (const [level, node] of chain.entries()) {
-    if (node.children.length === 0) break
-    const active = chain[level + 1]
-    rows.push({ nodes: node.children, ...(active === undefined ? {} : { activePath: active.path }) })
   }
 
   return (
@@ -136,32 +107,6 @@ export function SolarFrames({ apps, menus, tabs }: SolarWorkspaceInjected) {
       data-solar-frames=""
       style={activeAppId === undefined ? { display: 'none' } : undefined}
     >
-      {activeApp !== undefined && rows.length > 0 && (
-        <nav className={css.pageStrip} aria-label={activeApp.name}>
-          {rows.map((row, level) => (
-            <div className={css.pageRow} key={level}>
-              {row.nodes.map((node) => {
-                const active = row.activePath === node.path
-                return (
-                  <button
-                    key={node.path}
-                    type="button"
-                    className={active ? css.pageChipActive : css.pageChip}
-                    title={node.name}
-                    aria-current={active ? 'page' : undefined}
-                    onClick={() => {
-                      const target = firstPagePath(node)
-                      if (target !== '') navigate(target)
-                    }}
-                  >
-                    {node.name}
-                  </button>
-                )
-              })}
-            </div>
-          ))}
-        </nav>
-      )}
       <div className={css.frames}>
         {openedTabs.map(({ tab, app }) => (
           <SolarFrame
@@ -278,8 +223,11 @@ function watchRoute(frame: HTMLIFrameElement, onRoute: (route: string) => void):
  * @param props 标签 store、应用目录与回调
  */
 export function WorkspaceTabBar({
-  tabs, apps, openWorkbench, openApp, closeTab, t,
+  tabs, apps, openWorkbench, openApp, closeTab, assistant, toggleAssistant, t,
 }: WorkspaceTabBarProps) {
+  const assistantCollapsed = useSyncExternalStore(
+    assistant.subscribe, assistant.getSnapshot, assistant.getSnapshot,
+  )
   const state = useSyncExternalStore(tabs.subscribe, tabs.getSnapshot, tabs.getSnapshot)
   const appState = useSyncExternalStore(apps.subscribe, apps.getSnapshot, apps.getSnapshot)
   const appById = useMemo(
@@ -356,6 +304,18 @@ export function WorkspaceTabBar({
           +
         </button>
       </div>
+      {state.activeId !== WORKBENCH_TAB_ID && (
+        <button
+          type="button"
+          className={css.assistantToggle}
+          aria-label={assistantCollapsed ? t('showAssistant') : t('hideAssistant')}
+          aria-pressed={!assistantCollapsed}
+          title={assistantCollapsed ? t('showAssistant') : t('hideAssistant')}
+          onClick={toggleAssistant}
+        >
+          <span aria-hidden="true">{assistantCollapsed ? '▤' : '▥'}</span>
+        </button>
+      )}
       <NotificationBell t={t} />
     </div>
   )

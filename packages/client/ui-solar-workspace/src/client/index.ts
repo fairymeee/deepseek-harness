@@ -16,10 +16,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { SolarAppsStore, SolarMenuStore, type SolarApp } from './apps.ts'
+import { SolarAppsStore, type SolarApp } from './apps.ts'
 import type { AppWorkspaceBinding } from './appWorkspace.ts'
 import { appDirectoryName, AppWorkspaceStore, pickSessionForApp } from './appWorkspace.ts'
 import { AppTabsStore, WORKBENCH_TAB_ID, type AppTab } from './tabs.ts'
+import { AssistantToggleStore } from './assistant.ts'
 import {
   SolarFrames, SolarPlaceholder, WorkspaceTabBar,
   type SolarWorkspaceInjected, type WorkspaceTabBarProps,
@@ -79,6 +80,17 @@ export function apply(ctx: ClientContext): void {
       '  margin-left: var(--solar-split-width, 60%);',
       '  min-width: 0;',
       '}',
+      // 收起助手：应用占满中栏，会话只是藏起来，不卸载——
+      // 展开时还停在原来的对话上。
+      ':root[data-solar-shell][data-solar-assistant-collapsed] div:has(> [data-conversation-content]) {',
+      '  visibility: hidden;',
+      '  pointer-events: none;',
+      '}',
+      // 输入框下方的 token 速率、缓存命中率是开发者指标。业务用户看不懂，
+      // 也占掉本就不宽的行宽，嵌入模式下不显示。
+      ':root[data-solar-shell] [data-composer-stat] {',
+      '  display: none;',
+      '}',
     ].join('\n')
     document.head.append(style)
     document.documentElement.dataset.solarShell = ''
@@ -87,6 +99,27 @@ export function apply(ctx: ClientContext): void {
       delete document.documentElement.dataset.solarShell
     }
   }, 'solar-apps: shell layout')
+
+  /**
+   * 助手面板是否收起。
+   *
+   * DeepClaw 的助手是"可停靠、可收起"的：看业务页面时可以把它收起来，
+   * 让应用占满。窄窗口下两个并排都看不清，这个开关是必需品。
+   * 声明必须在几何 effect 之前：effect 注册时会立刻读这个状态。
+   */
+  const assistant = new AssistantToggleStore(readFlag(ASSISTANT_COLLAPSED_KEY))
+
+  const applyAssistantCollapsed = (): void => {
+    const root = document.documentElement
+    if (assistant.getSnapshot()) root.dataset.solarAssistantCollapsed = ''
+    else delete root.dataset.solarAssistantCollapsed
+    syncGeometry()
+  }
+
+  const toggleAssistant = (): void => {
+    writeFlag(ASSISTANT_COLLAPSED_KEY, assistant.toggle())
+    applyAssistantCollapsed()
+  }
 
   /**
    * 量出中栏的位置与宽度。
@@ -113,7 +146,10 @@ export function apply(ctx: ClientContext): void {
     const root = document.documentElement
     root.style.setProperty('--solar-center-left', `${Math.round(box.left)}px`)
     root.style.setProperty('--solar-center-width', `${center}px`)
-    root.style.setProperty('--solar-split-width', `${splitWidthFor(center)}px`)
+    root.style.setProperty(
+      '--solar-split-width',
+      `${assistant.getSnapshot() ? center : splitWidthFor(center)}px`,
+    )
     // 会话区的宽度变化（打开右栏、折叠侧栏）不会改变 body 尺寸，
     // 必须直接盯住会话元素，否则变量会一直停在上一次的值上，
     // 表现为打开右栏后对话被挤成一条竖线。
@@ -146,6 +182,7 @@ export function apply(ctx: ClientContext): void {
   }
 
   ctx.effect(() => {
+    applyAssistantCollapsed()
     resizeObserver = new ResizeObserver(() => { syncGeometry() })
     window.addEventListener('resize', syncGeometry)
     // 插件初始化时会话面板可能还没挂载（正在恢复会话），一次量不到就
@@ -171,7 +208,6 @@ export function apply(ctx: ClientContext): void {
   }, 'solar-apps: geometry')
   const t = ctx.locale.bind(NS)
   const apps = new SolarAppsStore()
-  const menus = new SolarMenuStore()
   const tabs = new AppTabsStore()
   /** 已注册的 main 面板：只为了让侧栏点击能派发，渲染为空。 */
   const panelDisposers = new Map<string, () => void>()
@@ -189,6 +225,7 @@ export function apply(ctx: ClientContext): void {
    * 只还原自己收起的那次：用户本来就把侧栏收着，回到工作台时不该替他展开。
    */
   let sidebarHiddenBySplit = false
+
 
   /** 侧栏当前是否收起（官方 frame 上的稳定标记）。 */
   const sidebarCollapsed = (): boolean =>
@@ -426,6 +463,8 @@ export function apply(ctx: ClientContext): void {
       openWorkbench,
       openApp,
       closeTab,
+      assistant,
+      toggleAssistant,
       t,
     }),
   }, WorkspaceTabBar))
@@ -437,7 +476,6 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     inject: (): SolarWorkspaceInjected => ({
       apps,
-      menus,
       tabs,
       openWorkbench,
       openApp,
@@ -475,7 +513,6 @@ export function apply(ctx: ClientContext): void {
   }
 
   apps.subscribe(syncSidebar)
-  void menus.refresh()
   void apps.refresh().then(() => {
     syncSidebar()
     restoreFromUrl()
@@ -612,24 +649,38 @@ export function apply(ctx: ClientContext): void {
   }, 'solar-apps: registration teardown')
 }
 
-/** 助手栏（会话）至少要留出的宽度。DSH 的会话面板低于这个宽度会退化：
- *  标题栏丢标题、输入框工具栏换行溢出。 */
-const MIN_ASSISTANT_WIDTH = 640
-/** 应用窗格的目标最小宽度。 */
-const MIN_APP_WIDTH = 480
+/**
+ * 助手栏（会话）至少要留出的宽度。
+ *
+ * DSH 的会话面板低于 640 会退化（标题栏丢标题、输入框工具栏换行）；
+ * 但应用侧栏放回来之后，助手再占 640 就把业务表格压没了，
+ * 折中到 520：会话仍可读，应用窗格还留得住一张表。
+ */
+const MIN_ASSISTANT_WIDTH = 520
+/**
+ * 应用窗格的目标宽度。
+ *
+ * 管理端自己按 768px 断点判断"是不是窄屏"：低于它会把侧栏收进抽屉、
+ * 页面切到移动端排版。应用窗格必须让开这个断点，否则原生侧栏根本不出现。
+ */
+const PREFERRED_APP_WIDTH = 768
+/** 应用窗格的最小可接受宽度。 */
+const MIN_APP_WIDTH = 520
 
 /**
  * 算出应用窗格该占多宽。
  *
- * 侧栏在分栏时会收起，中栏通常就是整个窗口宽度。两边都不够时不要硬分：
- * 应用占满中栏，会话通过「Workbench」标签切回——比并排两个都看不清可用。
+ * 优先保证应用窗格过桌面断点（原生侧栏才在），助手拿剩下的；
+ * 剩下不够就退到按比例分。两边都不够时不要硬分：应用占满中栏，
+ * 会话通过「Workbench」标签切回——比并排两个都看不清可用。
  * @param center 中栏宽度
  * @returns 应用窗格宽度
  */
 function splitWidthFor(center: number): number {
   const available = center - MIN_ASSISTANT_WIDTH
   if (available < MIN_APP_WIDTH) return Math.round(center)
-  return Math.round(Math.min(Math.max(center * 0.55, MIN_APP_WIDTH), available))
+  const preferred = Math.max(available, PREFERRED_APP_WIDTH)
+  return Math.round(Math.min(preferred, center - 360))
 }
 
 /** 应用工作区绑定持久化用的键（与 tabs 一致的前缀）。 */
@@ -697,5 +748,35 @@ function readCurrentSession(): string | undefined {
     return typeof id === 'string' ? id : undefined
   } catch {
     return undefined
+  }
+}
+
+/** 助手面板折叠状态的持久化键。 */
+const ASSISTANT_COLLAPSED_KEY = 'solar-workspace:assistant-collapsed'
+
+/**
+ * 读一个布尔开关。
+ * @param key 存储键
+ * @returns 是否开启；缺失或不可读时 false
+ */
+function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 写一个布尔开关。
+ * @param key 存储键
+ * @param value 是否开启
+ */
+function writeFlag(key: string, value: boolean): void {
+  try {
+    if (value) localStorage.setItem(key, '1')
+    else localStorage.removeItem(key)
+  } catch {
+    // 隐私模式：本次会话内有效。
   }
 }
