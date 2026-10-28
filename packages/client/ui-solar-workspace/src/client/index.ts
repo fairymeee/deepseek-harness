@@ -17,6 +17,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SolarAppsStore, SolarMenuStore, type SolarApp } from './apps.ts'
+import type { AppWorkspaceBinding } from './appWorkspace.ts'
+import { appDirectoryName, AppWorkspaceStore, pickSessionForApp } from './appWorkspace.ts'
 import { AppTabsStore, WORKBENCH_TAB_ID, type AppTab } from './tabs.ts'
 import {
   SolarFrames, SolarPlaceholder, WorkspaceTabBar,
@@ -33,8 +35,16 @@ export type { AppTab } from './tabs.ts'
 /** 文案命名空间。 */
 export const NS = 'solarWorkspace'
 
-/** 需要官方 slot 注册表与面板导航。 */
-export const inject = ['slots', 'layout', 'locale']
+/**
+ * 需要官方 slot 注册表、面板导航，以及"应用即工作区"用到的三组服务。
+ *
+ * 这里是**服务名**：Cordis 按它给 `ctx.<name>` 放行，没声明的属性访问会直接抛错
+ * （"cannot get property … without inject"）。package.json 里的
+ * `dsh.client.inject` 是包名，只负责加载顺序，两者都要写。
+ */
+export const inject = [
+  'slots', 'layout', 'locale', 'sessions', 'workspaces', 'uiWorkspace',
+]
 
 /**
  * 挂载 Solar 应用。
@@ -204,20 +214,166 @@ export function apply(ctx: ClientContext): void {
     syncGeometry()
   }
 
-  /** 打开工作台：收起应用面板，会话占满。 */
+  /** 打开工作台：收起应用面板，会话占满，并回到控制台会话。 */
   const openWorkbench = (): void => {
+    // 取消可能在途的应用切换：用户已经回到工作台，不该再被拉走。
+    appNavigation += 1
     tabs.activate(WORKBENCH_TAB_ID)
     ctx.layout.selectPanel(null)
     setSplit(false)
+    restoreConsoleSession()
   }
 
-  /** 打开一个应用：新增标签并并排显示。 */
+  /**
+   * 打开一个应用：新增标签、并排显示，并把助手切到该应用最近的会话。
+   *
+   * 会话切换是异步的（要先解析工作区），所以用递增的令牌取消过期请求：
+   * 用户连点两个应用时，只应该停在最后点的那个上。
+   */
   const openApp = (app: SolarApp): void => {
     const panelId = `solar-app-${app.id}`
+    // 从工作台进入应用前记住控制台会话，回工作台时恢复。
+    if (tabs.getSnapshot().activeId === WORKBENCH_TAB_ID) rememberConsoleSession()
     tabs.open({ id: panelId, label: app.name, pinned: false, appId: app.id })
     // 会话必须留在 main 里，否则右半边没东西可看。
     ctx.layout.selectPanel(null)
     setSplit(true)
+    const token = ++appNavigation
+    void openAppSession(app, token).catch((reason: unknown) => {
+      console.warn('[solar] 打开应用工作区失败：', reason)
+    })
+  }
+
+  // ── 应用即工作区 ──────────────────────────────────────────────
+  //
+  // 每个应用对应一个宿主工作区：会话归属到该工作区，打开应用时助手自动
+  // 带出这个应用最近的会话。DSH 的会话列表本来就按工作区分组，侧栏因此
+  // 天然按应用分组，不需要另造一套分组界面。
+  const bindings = new AppWorkspaceStore()
+  let appNavigation = 0
+
+  /** 这些服务由其他插件提供；缺失时降级为"只切应用、不切会话"。 */
+  const workspaceApi = (): WorkspacesLike | undefined =>
+    (ctx as unknown as { workspaces?: WorkspacesLike }).workspaces
+  const sessionApi = (): SessionsLike | undefined =>
+    (ctx as unknown as { sessions?: SessionsLike }).sessions
+  const uiWorkspaceApi = (): UiWorkspaceLike | undefined =>
+    (ctx as unknown as { uiWorkspace?: UiWorkspaceLike }).uiWorkspace
+  /**
+   * 让网关准备一个应用工作区目录。
+   *
+   * 宿主只接受已存在的目录，而 Web 宿主的目录选择器没有 list/create 能力，
+   * 浏览器侧建不了目录；网关和宿主同机，由它建。
+   * @param slug 单段目录名，例如 hrm
+   * @returns 绝对路径；失败时 undefined
+   */
+  const ensureAppDirectory = async (slug: string): Promise<string | undefined> => {
+    try {
+      const response = await fetch(`/solar-api/app-workspace?slug=${encodeURIComponent(slug)}`, {
+        headers: { accept: 'application/json' },
+        credentials: 'same-origin',
+      })
+      if (!response.ok) return undefined
+      const payload: unknown = await response.json()
+      if (payload === null || typeof payload !== 'object') return undefined
+      const path = (payload as { path?: unknown }).path
+      return typeof path === 'string' && path !== '' ? path : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
+
+  /** 轮询等待一个条件成立，避免在快照还没到位时做出错误判断。 */
+  const waitFor = async (ready: () => boolean, attempts = 50): Promise<boolean> => {
+    for (let index = 0; index < attempts; index += 1) {
+      if (ready()) return true
+      await sleep(100)
+    }
+    return ready()
+  }
+
+  const workspaceById = (workspaceId: string): WorkspaceViewLike | undefined =>
+    workspaceApi()?.list.getSnapshot().items.find(item => item.workspaceId === workspaceId)
+
+  /** 解析（必要时创建）一个应用对应的工作区。 */
+  const ensureAppWorkspace = async (app: SolarApp): Promise<AppWorkspaceBinding | undefined> => {
+    const workspaces = workspaceApi()
+    if (workspaces === undefined) return undefined
+    const cached = bindings.get(app.id)
+    if (cached !== undefined) {
+      if (workspaceById(cached.workspaceId) !== undefined) return cached
+      // 工作区被用户删掉了；绑定失效，重新解析。
+      bindings.delete(app.id)
+    }
+    const directory = await ensureAppDirectory(appDirectoryName(app.path, app.id))
+    if (directory === undefined) return undefined
+    const created = await workspaces.create({ path: directory })
+    if (created.title !== app.name) {
+      // 标题默认取目录名（hrm）。改成应用名，侧栏分组才读得懂；
+      // 重名说明别的分组占了这个标题，保持目录名即可，不打断打开流程。
+      try {
+        await workspaces.rename(created.workspaceId, app.name)
+      } catch {
+        // 保持目录名。
+      }
+    }
+    const binding: AppWorkspaceBinding = { workspaceId: created.workspaceId, path: directory }
+    bindings.set(app.id, binding)
+    return binding
+  }
+
+  /** 把助手切到该应用的工作区会话。 */
+  const openAppSession = async (app: SolarApp, token: number): Promise<void> => {
+    const api = uiWorkspaceApi()
+    const sessions = sessionApi()
+    if (api === undefined) return
+    if (sessions === undefined) return
+    if (workspaceApi() === undefined) return
+    const binding = await ensureAppWorkspace(app)
+    if (binding === undefined || token !== appNavigation) return
+    // 工作区与会话列表都来自流式快照，刚建好的工作区可能还没到。
+    await waitFor(() => workspaceById(binding.workspaceId) !== undefined, 20)
+    await waitFor(() => sessions.list.getSnapshot().phase === 'ready')
+    if (token !== appNavigation) return
+    const workspace = workspaceById(binding.workspaceId)
+    const snapshot = sessions.list.getSnapshot()
+    const archived = workspaceApi()?.list.getSnapshot().archivedSessionIds ?? []
+    const picked = pickSessionForApp(binding, workspace, snapshot.byId, archived)
+    // 这个应用还没聊过：给它开一个空会话，而不是借用别的应用的上下文。
+    const sessionId = picked ?? await api.connectWorkspace(binding.workspaceId)
+    if (token !== appNavigation) return
+    api.openSession(sessionId)
+    bindings.set(app.id, { ...binding, lastSessionId: sessionId })
+  }
+
+  /** 记下当前主会话，供回到工作台时恢复。 */
+  const rememberConsoleSession = (): void => {
+    const current = readCurrentSession()
+    if (current === undefined) return
+    try {
+      localStorage.setItem(CONSOLE_SESSION_KEY, current)
+    } catch {
+      // 隐私模式：这次会话内不记忆，不影响功能。
+    }
+  }
+
+  /** 回到工作台时恢复控制台会话。 */
+  const restoreConsoleSession = (): void => {
+    const api = uiWorkspaceApi()
+    const sessions = sessionApi()
+    if (api === undefined || sessions === undefined) return
+    let saved: string | undefined
+    try {
+      saved = localStorage.getItem(CONSOLE_SESSION_KEY) ?? undefined
+    } catch {
+      saved = undefined
+    }
+    if (saved === undefined) return
+    // 会话可能已被删除；不存在就别把界面切到一个打不开的地址。
+    if (sessions.list.getSnapshot().byId[saved] === undefined) return
+    api.openSession(saved)
   }
 
   /** 关闭标签；关掉当前标签时切到相邻标签。 */
@@ -462,4 +618,72 @@ function splitWidthFor(center: number): number {
   const available = center - MIN_ASSISTANT_WIDTH
   if (available < MIN_APP_WIDTH) return Math.round(center)
   return Math.round(Math.min(Math.max(center * 0.55, MIN_APP_WIDTH), available))
+}
+
+/** 应用工作区绑定持久化用的键（与 tabs 一致的前缀）。 */
+const CONSOLE_SESSION_KEY = 'solar-workspace:console-session'
+
+/** 工作区列表里用得到的最小字段。 */
+interface WorkspaceViewLike {
+  readonly workspaceId: string
+  readonly title: string
+  readonly path: string
+  readonly sessionIds: readonly string[]
+}
+
+/** 宿主工作区控制器（由 api-workspace-controller 插件提供）。 */
+interface WorkspacesLike {
+  readonly list: {
+    getSnapshot(): {
+      readonly items: readonly WorkspaceViewLike[]
+      readonly archivedSessionIds: readonly string[]
+      readonly phase: 'pending' | 'ready'
+    }
+  }
+  create(input: { path: string }): Promise<WorkspaceViewLike>
+  initializeDefault(signal?: AbortSignal): Promise<WorkspaceViewLike | undefined>
+  rename(workspaceId: string, title: string): Promise<unknown>
+}
+
+
+/** 会话控制器（由 api-session-controller 插件提供）。 */
+interface SessionsLike {
+  readonly list: {
+    getSnapshot(): {
+      readonly byId: Readonly<Record<string, {
+        readonly sessionId: string
+        readonly updatedAt: number
+        readonly blank: boolean
+      }>>
+      readonly phase: 'pending' | 'ready'
+    }
+  }
+}
+
+/** 工作区 UI 服务（由 client-ui-workspace 插件提供）。 */
+interface UiWorkspaceLike {
+  openSession(target: string): void
+  connectWorkspace(workspaceId: string): Promise<string>
+  listDirectory(path?: string): Promise<{ readonly home: string }>
+  createDirectory(path: string, name: string): Promise<string>
+}
+
+/**
+ * 读出当前主会话。
+ *
+ * 官方导航服务把当前选择持久化在 `dsh.sessions.current`，没有对外暴露
+ * 读取接口；这是唯一能拿到"用户此刻在看哪个会话"的稳定位置。
+ * @returns 会话 id；未选择时 undefined
+ */
+function readCurrentSession(): string | undefined {
+  try {
+    const raw = localStorage.getItem('dsh.sessions.current')
+    if (raw === null) return undefined
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed === null || typeof parsed !== 'object') return undefined
+    const id = (parsed as { sessionId?: unknown }).sessionId
+    return typeof id === 'string' ? id : undefined
+  } catch {
+    return undefined
+  }
 }
